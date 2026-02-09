@@ -1,0 +1,27 @@
+{
+  "name": "frida-mcp-ts",
+  "version": "1.0.0",
+  "description": "TypeScript MCP server for Frida 17 dynamic instrumentation",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc && cp src/docs/frida-api.json dist/docs/frida-api.json",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch",
+    "fetch-docs": "tsx scripts/fetch-docs.ts",
+    "test": "node --import tsx/esm --test 'test/unit/**/*.test.ts' 'test/integration/**/*.test.ts'",
+    "test:unit": "node --import tsx/esm --test 'test/unit/**/*.test.ts'",
+    "test:integration": "node --import tsx/esm --test 'test/integration/**/*.test.ts'",
+    "test:device": "node --import tsx/esm --test 'test/device/**/*.test.ts'"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "frida": "^17.6.2",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0"
+  }
+}

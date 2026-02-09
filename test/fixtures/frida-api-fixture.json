@@ -1,0 +1,37 @@
+{
+  "version": "17.0.0-test",
+  "sections": [
+    {
+      "id": "interceptor",
+      "title": "Interceptor",
+      "category": "Instrumentation",
+      "content": "Interceptor.attach(target, callbacks) hooks native functions. The target is a NativePointer to the function. callbacks is an object with onEnter(args) and onLeave(retval).",
+      "keywords": ["hook", "attach", "detach", "onEnter", "onLeave", "native"],
+      "examples": ["Interceptor.attach(ptr('0x1234'), { onEnter(args) { console.log(args[0]); } });"]
+    },
+    {
+      "id": "java-choose",
+      "title": "Java.choose",
+      "category": "Java",
+      "content": "Java.choose(className, callbacks) scans the heap for live instances of a class. callbacks has onMatch(instance) and onComplete().",
+      "keywords": ["heap", "instance", "choose", "java", "scan"],
+      "examples": ["Java.choose('com.example.MyClass', { onMatch(i) { console.log(i); }, onComplete() {} });"]
+    },
+    {
+      "id": "frida17-migration",
+      "title": "Frida 17 Migration Guide",
+      "category": "Migration",
+      "content": "Key changes in Frida 17: Module.findExportByName is removed. Use module instance methods instead: Process.getModuleByName('libc.so').findExportByName('open'). Memory.readX static methods are gone — use NativePointer instance methods: ptr(addr).readU32().",
+      "keywords": ["migration", "deprecated", "breaking", "frida17", "Module.findExportByName", "Memory.readU8"],
+      "examples": ["var mod = Process.getModuleByName('libc.so'); var addr = mod.findExportByName('open');"]
+    },
+    {
+      "id": "process-module",
+      "title": "Process",
+      "category": "Core",
+      "content": "Process.enumerateModules() lists loaded modules. Process.getModuleByName(name) returns a Module. Process.findModuleByName(name) returns Module or null.",
+      "keywords": ["process", "module", "enumerate", "arch", "platform"],
+      "examples": ["var mods = Process.enumerateModules(); mods.forEach(function(m) { console.log(m.name); });"]
+    }
+  ]
+}
