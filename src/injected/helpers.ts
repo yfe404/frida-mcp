@@ -63,3 +63,49 @@ export function readMemoryJS(addressExpr: string, size: number): string {
   return lines.join("\\n");
 })()`;
 }
+
+export function writeMemoryJS(addressExpr: string, hexBytes: string): string {
+  return `(function() {
+  var addr = ${addressExpr};
+  var hexStr = ${JSON.stringify(hexBytes)};
+  var clean = hexStr.replace(/\\s+/g, "");
+  var bytes = [];
+  for (var i = 0; i < clean.length; i += 2) {
+    bytes.push(parseInt(clean.substr(i, 2), 16));
+  }
+  var buf = new ArrayBuffer(bytes.length);
+  var view = new Uint8Array(buf);
+  for (var i = 0; i < bytes.length; i++) {
+    view[i] = bytes[i];
+  }
+  try {
+    Memory.protect(addr, bytes.length, "rwx");
+  } catch(e) {}
+  addr.writeByteArray(buf);
+  return { address: addr.toString(), bytesWritten: bytes.length };
+})()`;
+}
+
+export function searchMemoryJS(hexPattern: string, maxResults: number): string {
+  return `(function() {
+  var results = [];
+  var ranges = Process.enumerateRanges("r--");
+  for (var i = 0; i < ranges.length; i++) {
+    if (results.length >= ${maxResults}) break;
+    try {
+      var matches = Memory.scanSync(ranges[i].base, ranges[i].size, ${JSON.stringify(hexPattern)});
+      for (var j = 0; j < matches.length; j++) {
+        var addr = matches[j].address;
+        var sym = DebugSymbol.fromAddress(addr);
+        results.push({
+          address: addr.toString(),
+          size: matches[j].size,
+          module: sym.moduleName || null
+        });
+        if (results.length >= ${maxResults}) break;
+      }
+    } catch(e) {}
+  }
+  return { pattern: ${JSON.stringify(hexPattern)}, matches: results, total: results.length };
+})()`;
+}

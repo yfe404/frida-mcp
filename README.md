@@ -1,6 +1,6 @@
 # frida-mcp-ts
 
-TypeScript MCP server for Frida 17 dynamic instrumentation. Provides 26 tools and 15 resources for attaching to processes, executing scripts, hooking native functions, inspecting Java heaps, and searching Frida 17 API documentation — all through the Model Context Protocol.
+TypeScript MCP server for Frida 17 dynamic instrumentation. Provides 37 tools and 15 resources for attaching to processes, executing scripts, hooking native and Java methods, bypassing SSL pinning, reading/writing memory, inspecting Java heaps, and searching Frida 17 API documentation — all through the Model Context Protocol.
 
 ## Quick Start
 
@@ -81,7 +81,7 @@ Restart Claude Code to pick up the new server.
 | `unload_script` | Unload a script | `session_id`, `script_id` |
 | `call_rpc_export` | Call an RPC-exported method | `session_id`, `script_id`, `method`, `args?` |
 
-### Memory Tools (4)
+### Memory Tools (6)
 
 | Tool | Description | Key Params |
 |------|-------------|------------|
@@ -89,13 +89,19 @@ Restart Claude Code to pick up the new server.
 | `find_module` | Find module by name | `session_id`, `name` |
 | `list_exports` | List exported symbols from a module | `session_id`, `module_name` |
 | `read_memory` | Hex dump at address (supports `module+0xoffset`) | `session_id`, `address`, `size?` |
+| `write_memory` | Write bytes to address (auto memory protection) | `session_id`, `address`, `hex_bytes` |
+| `search_memory` | Search readable memory for hex/string patterns | `session_id`, `pattern`, `pattern_type?`, `max_results?` |
 
-### Java Tools (2)
+### Java Tools (6)
 
 | Tool | Description | Key Params |
 |------|-------------|------------|
 | `list_classes` | Enumerate loaded Java classes (max 500) | `session_id`, `filter?` |
 | `find_instances` | Find live heap instances via `Java.choose()` | `session_id`, `class_name`, `max_instances?` |
+| `list_methods` | List all methods of a Java class with types/modifiers | `session_id`, `class_name` |
+| `dump_class` | Full class introspection (methods, fields, constructors, interfaces, superclass) | `session_id`, `class_name` |
+| `run_java` | Execute arbitrary code inside `Java.perform()` | `session_id`, `code` |
+| `android_hook_method` | Hook a Java method (all overloads), log args/retval/backtrace | `session_id`, `class_name`, `method_name`, `log_args?`, `log_retval?`, `log_backtrace?` |
 
 ### Native Hook Tools (2)
 
@@ -103,6 +109,16 @@ Restart Claude Code to pick up the new server.
 |------|-------------|------------|
 | `hook_function` | Install persistent `Interceptor.attach` hook | `session_id`, `address`, `log_args?`, `log_retval?`, `num_args?` |
 | `get_backtrace` | One-shot backtrace capture (self-detaches) | `session_id`, `address`, `style?` |
+
+### Android Tools (5)
+
+| Tool | Description | Key Params |
+|------|-------------|------------|
+| `android_ssl_pinning_disable` | Bypass SSL pinning (TrustManager, SSLContext, OkHttp, TrustManagerImpl) | `session_id`, `script_id?` |
+| `android_get_current_activity` | Get foreground activity via ActivityThread reflection | `session_id` |
+| `list_apps` | List installed applications (identifier, name, PID) | `device_id?` |
+| `file_ls` | List directory contents on target device (Java File API) | `session_id`, `path` |
+| `file_read` | Read a text file from target device | `session_id`, `path`, `max_size?` |
 
 ### Documentation Tools (1)
 
@@ -133,17 +149,18 @@ src/
 │   ├── index.ts              # DocStore — search/scoring over frida-api.json
 │   └── frida-api.json        # Pre-parsed Frida 17 API documentation
 ├── injected/
-│   ├── helpers.ts            # Frida 17-safe JS generators (modules, memory)
-│   ├── java-helpers.ts       # Java heap introspection JS generators
+│   ├── helpers.ts            # Frida 17-safe JS generators (modules, memory read/write/search)
+│   ├── java-helpers.ts       # Java introspection, hooking, SSL bypass, file ops JS generators
 │   └── hook-templates.ts     # Native hook JS generators
 └── tools/
     ├── device.ts             # Device enumeration (4 tools)
     ├── process.ts            # Process management (6 tools)
     ├── session.ts            # Session management (3 tools)
     ├── script-mgmt.ts        # Script loading/RPC (4 tools)
-    ├── memory.ts             # Module/memory operations (4 tools)
-    ├── java.ts               # Java introspection (2 tools)
+    ├── memory.ts             # Module/memory operations (6 tools)
+    ├── java.ts               # Java introspection & hooking (6 tools)
     ├── native-hooks.ts       # Native hooking (2 tools)
+    ├── android.ts            # Android pentesting & file ops (5 tools)
     └── docs.ts               # Doc search (1 tool)
 ```
 
@@ -182,6 +199,42 @@ src/
 2. hook_function(session_id, "libnative.so+0x1234", log_args=true, num_args=4) → hook_id
 3. (trigger the function on device)
 4. get_session_messages(session_id) → hook arg/retval logs
+```
+
+### Hook a Java method
+
+```
+1. create_interactive_session(pid) → session_id
+2. list_classes(session_id, filter="com.example") → find target class
+3. list_methods(session_id, "com.example.ApiClient") → find target method
+4. android_hook_method(session_id, "com.example.ApiClient", "sendRequest") → hook_id
+5. (trigger the method on device)
+6. get_session_messages(session_id) → method args/retval logs
+```
+
+### Bypass SSL pinning
+
+```
+1. create_interactive_session(pid) → session_id
+2. android_ssl_pinning_disable(session_id) → script_id
+3. get_session_messages(session_id) → list of bypassed targets
+```
+
+### Search and patch memory
+
+```
+1. create_interactive_session(pid) → session_id
+2. search_memory(session_id, pattern="secret_key", pattern_type="string") → addresses
+3. read_memory(session_id, "0x7f1234") → hex dump
+4. write_memory(session_id, "0x7f1234", "00 00 00 00") → bytes written
+```
+
+### Browse files on target device
+
+```
+1. create_interactive_session(pid) → session_id
+2. file_ls(session_id, "/data/data/com.example.app") → directory listing
+3. file_read(session_id, "/data/data/com.example.app/shared_prefs/config.xml") → file content
 ```
 
 ### Search Frida 17 docs
@@ -228,7 +281,7 @@ npm run fetch-docs
 
 ```
 test/
-├── unit/              # 87 tests — pure logic, no device needed
+├── unit/              # 137 tests — pure logic, no device needed
 │   ├── utils.test.ts
 │   ├── injected-helpers.test.ts
 │   ├── injected-java.test.ts

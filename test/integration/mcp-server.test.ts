@@ -12,6 +12,7 @@ import { registerMemoryTools } from "../../src/tools/memory.js";
 import { registerJavaTools } from "../../src/tools/java.js";
 import { registerNativeHookTools } from "../../src/tools/native-hooks.js";
 import { registerDocsTools } from "../../src/tools/docs.js";
+import { registerAndroidTools } from "../../src/tools/android.js";
 import { registerResources } from "../../src/resources.js";
 
 describe("MCP Server Integration", () => {
@@ -30,6 +31,7 @@ describe("MCP Server Integration", () => {
     registerJavaTools(server);
     registerNativeHookTools(server);
     registerDocsTools(server);
+    registerAndroidTools(server);
     registerResources(server);
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -50,9 +52,9 @@ describe("MCP Server Integration", () => {
   });
 
   describe("tools/list", () => {
-    it("returns all 26 tools", async () => {
+    it("returns all 37 tools", async () => {
       const result = await client.listTools();
-      assert.equal(result.tools.length, 26);
+      assert.equal(result.tools.length, 37);
     });
 
     it("each tool has description and inputSchema", async () => {
@@ -72,6 +74,17 @@ describe("MCP Server Integration", () => {
       assert.ok(names.includes("list_modules"));
       assert.ok(names.includes("find_instances"));
       assert.ok(names.includes("search_frida_docs"));
+      assert.ok(names.includes("list_methods"));
+      assert.ok(names.includes("dump_class"));
+      assert.ok(names.includes("run_java"));
+      assert.ok(names.includes("android_hook_method"));
+      assert.ok(names.includes("write_memory"));
+      assert.ok(names.includes("search_memory"));
+      assert.ok(names.includes("android_ssl_pinning_disable"));
+      assert.ok(names.includes("android_get_current_activity"));
+      assert.ok(names.includes("list_apps"));
+      assert.ok(names.includes("file_ls"));
+      assert.ok(names.includes("file_read"));
     });
   });
 
@@ -135,7 +148,7 @@ describe("MCP Server Integration", () => {
       });
       // Subsequent call should still work
       const result = await client.listTools();
-      assert.equal(result.tools.length, 26);
+      assert.equal(result.tools.length, 37);
     });
   });
 
