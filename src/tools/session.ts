@@ -18,19 +18,73 @@ import {
   sourceUsesJavaBridge,
 } from "../utils.js";
 import { sessionManager } from "../state.js";
-import type { ScriptMessage } from "../state.js";
+
+function isPTraceLikeAttachError(errorText: string): boolean {
+  return /(ptrace|pokedata|permission denied|operation not permitted|i\/o error)/i.test(errorText);
+}
+
+async function collectAttachDiagnostics(
+  device: Awaited<ReturnType<typeof resolveDevice>>,
+  processId: number,
+) {
+  const result: {
+    process_exists?: boolean;
+    process_name?: string;
+    app_identifier?: string;
+    app_name?: string;
+    warning?: string;
+  } = {};
+
+  try {
+    const processes = await device.enumerateProcesses();
+    const proc = processes.find((p) => p.pid === processId);
+    result.process_exists = !!proc;
+    if (proc) {
+      result.process_name = proc.name;
+    }
+  } catch (e) {
+    result.warning = `Failed to enumerate processes: ${String(e)}`;
+  }
+
+  try {
+    const apps = await device.enumerateApplications();
+    const app = apps.find((a) => a.pid === processId);
+    if (app) {
+      result.app_identifier = app.identifier;
+      result.app_name = app.name;
+    }
+  } catch {
+    // Some targets don't support app enumeration; ignore.
+  }
+
+  return result;
+}
+
+function ptraceHints(): string[] {
+  return [
+    "Verify target PID is still alive.",
+    "Run frida-server with sufficient privileges (often root on Android).",
+    "Check SELinux policy / anti-debug restrictions on target process.",
+    "Verify frida client/server versions are compatible.",
+    "Use spawn + attach for hardened targets when live attach is blocked.",
+  ];
+}
 
 export function registerSessionTools(server: McpServer): void {
   server.tool(
     "create_interactive_session",
-    "Attach to a process and create a managed session for script execution. Returns a session_id for use with other tools.",
+    "Attach to a process and create a managed session for script execution. On ptrace-like attach failures, can automatically fall back to spawn+attach.",
     {
       process_id: z.number().describe("PID to attach to"),
       device_id: z.string().optional().describe("Device ID (default: USB)"),
+      spawn_fallback: z.boolean().optional().default(true).describe("If attach fails with ptrace-like error, try spawn+attach fallback"),
+      app_identifier: z.string().optional().describe("Optional app/package identifier to use for spawn fallback"),
+      auto_resume_spawned: z.boolean().optional().default(false).describe("Resume the spawned process automatically when fallback succeeds"),
     },
-    async ({ process_id, device_id }) => {
+    async ({ process_id, device_id, spawn_fallback, app_identifier, auto_resume_spawned }) => {
+      const device = await resolveDevice(device_id);
+
       try {
-        const device = await resolveDevice(device_id);
         const fridaSession = await device.attach(process_id);
         const sessionId = sessionManager.generateSessionId(process_id);
         sessionManager.addSession(sessionId, fridaSession, device, process_id);
@@ -42,12 +96,86 @@ export function registerSessionTools(server: McpServer): void {
               status: "success",
               process_id,
               session_id: sessionId,
+              fallback_used: false,
               message: `Interactive session created. Use execute_in_session or load_script with session_id '${sessionId}'.`,
             }),
           }],
         };
       } catch (e) {
-        return { content: [{ type: "text", text: JSON.stringify({ status: "error", error: String(e) }) }] };
+        const errorText = String(e);
+        const diagnostics = await collectAttachDiagnostics(device, process_id);
+        const fallbackEligible = spawn_fallback && isPTraceLikeAttachError(errorText);
+        const fallbackIdentifier = app_identifier || diagnostics.app_identifier;
+
+        if (fallbackEligible && fallbackIdentifier) {
+          try {
+            const spawnedPid = await device.spawn(fallbackIdentifier);
+            const fridaSession = await device.attach(spawnedPid);
+            const sessionId = sessionManager.generateSessionId(spawnedPid);
+            sessionManager.addSession(sessionId, fridaSession, device, spawnedPid);
+
+            if (auto_resume_spawned) {
+              await device.resume(spawnedPid);
+            }
+
+            return {
+              content: [{
+                type: "text",
+                text: JSON.stringify({
+                  status: "success",
+                  session_id: sessionId,
+                  original_process_id: process_id,
+                  process_id: spawnedPid,
+                  fallback_used: true,
+                  fallback_strategy: "spawn_attach",
+                  app_identifier: fallbackIdentifier,
+                  resumed: auto_resume_spawned,
+                  message: auto_resume_spawned
+                    ? `Attach to PID ${process_id} failed; spawned '${fallbackIdentifier}' and resumed PID ${spawnedPid}.`
+                    : `Attach to PID ${process_id} failed; spawned '${fallbackIdentifier}' and attached to suspended PID ${spawnedPid}. Resume with resume_process.`,
+                  diagnostics: {
+                    attach_error: errorText,
+                    ...diagnostics,
+                    hints: ptraceHints(),
+                  },
+                }),
+              }],
+            };
+          } catch (spawnError) {
+            return {
+              content: [{
+                type: "text",
+                text: JSON.stringify({
+                  status: "error",
+                  error: errorText,
+                  fallback_attempted: true,
+                  fallback_strategy: "spawn_attach",
+                  fallback_identifier: fallbackIdentifier,
+                  fallback_error: String(spawnError),
+                  diagnostics: {
+                    ...diagnostics,
+                    hints: ptraceHints(),
+                  },
+                }),
+              }],
+            };
+          }
+        }
+
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              status: "error",
+              error: errorText,
+              fallback_attempted: false,
+              diagnostics: {
+                ...diagnostics,
+                hints: isPTraceLikeAttachError(errorText) ? ptraceHints() : undefined,
+              },
+            }),
+          }],
+        };
       }
     },
   );
