@@ -7,7 +7,16 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { resolveDevice, executeTransientScript, wrapForExecution, truncateResult, createV8Script } from "../utils.js";
+import {
+  resolveDevice,
+  executeTransientScript,
+  executeTransientJavaScript,
+  wrapForExecution,
+  truncateResult,
+  createV8Script,
+  createJavaBridgeScript,
+  sourceUsesJavaBridge,
+} from "../utils.js";
 import { sessionManager } from "../state.js";
 import type { ScriptMessage } from "../state.js";
 
@@ -57,13 +66,17 @@ export function registerSessionTools(server: McpServer): void {
       try {
         if (!keep_alive) {
           // Transient: execute and unload
-          const result = await executeTransientScript(session.fridaSession, javascript_code);
+          const result = sourceUsesJavaBridge(javascript_code)
+            ? await executeTransientJavaScript(session.fridaSession, javascript_code)
+            : await executeTransientScript(session.fridaSession, javascript_code);
           return { content: [{ type: "text", text: JSON.stringify(result) }] };
         }
 
         // Persistent: load script, attach message handler, keep alive
         const wrapped = wrapForExecution(javascript_code);
-        const script = await createV8Script(session.fridaSession, wrapped);
+        const script = sourceUsesJavaBridge(javascript_code)
+          ? await createJavaBridgeScript(session.fridaSession, wrapped)
+          : await createV8Script(session.fridaSession, wrapped);
         const scriptId = sessionManager.generateScriptId();
 
         script.message.connect((message, data: Buffer | null) => {

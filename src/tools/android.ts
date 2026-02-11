@@ -6,7 +6,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { sessionManager } from "../state.js";
-import { resolveDevice, executeTransientScript, truncateResult, createV8Script } from "../utils.js";
+import { resolveDevice, executeTransientJavaScript, truncateResult, createJavaBridgeScript } from "../utils.js";
 import {
   sslPinningDisableJS,
   getCurrentActivityJS,
@@ -27,7 +27,7 @@ export function registerAndroidTools(server: McpServer): void {
       const id = script_id || `ssl_bypass_${Date.now()}`;
       const code = sslPinningDisableJS();
 
-      const script = await createV8Script(session.fridaSession, code);
+      const script = await createJavaBridgeScript(session.fridaSession, code);
       script.message.connect((message, data: Buffer | null) => {
         sessionManager.pushMessage(session_id, {
           type: message.type,
@@ -61,7 +61,7 @@ export function registerAndroidTools(server: McpServer): void {
     },
     async ({ session_id }) => {
       const session = sessionManager.requireSession(session_id);
-      const result = await executeTransientScript(
+      const result = await executeTransientJavaScript(
         session.fridaSession,
         getCurrentActivityJS(),
         5000,
@@ -97,7 +97,7 @@ export function registerAndroidTools(server: McpServer): void {
     },
     async ({ session_id, path }) => {
       const session = sessionManager.requireSession(session_id);
-      const result = await executeTransientScript(
+      const result = await executeTransientJavaScript(
         session.fridaSession,
         fileLsJS(path),
         10000,
@@ -116,7 +116,7 @@ export function registerAndroidTools(server: McpServer): void {
     },
     async ({ session_id, path, max_size }) => {
       const session = sessionManager.requireSession(session_id);
-      const result = await executeTransientScript(
+      const result = await executeTransientJavaScript(
         session.fridaSession,
         fileReadJS(path, max_size),
         10000,

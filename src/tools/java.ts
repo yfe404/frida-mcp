@@ -8,7 +8,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { sessionManager } from "../state.js";
-import { executeTransientScript, truncateResult, createV8Script } from "../utils.js";
+import { executeTransientJavaScript, truncateResult, createJavaBridgeScript } from "../utils.js";
 import {
   listClassesJS,
   findInstancesJS,
@@ -28,7 +28,7 @@ export function registerJavaTools(server: McpServer): void {
     },
     async ({ session_id, filter }) => {
       const session = sessionManager.requireSession(session_id);
-      const result = await executeTransientScript(
+      const result = await executeTransientJavaScript(
         session.fridaSession,
         listClassesJS(filter),
         10000, // class enumeration can be slow
@@ -47,7 +47,7 @@ export function registerJavaTools(server: McpServer): void {
     },
     async ({ session_id, class_name, max_instances }) => {
       const session = sessionManager.requireSession(session_id);
-      const result = await executeTransientScript(
+      const result = await executeTransientJavaScript(
         session.fridaSession,
         findInstancesJS(class_name, max_instances ?? 5),
         15000, // heap scanning can be slow
@@ -65,7 +65,7 @@ export function registerJavaTools(server: McpServer): void {
     },
     async ({ session_id, class_name }) => {
       const session = sessionManager.requireSession(session_id);
-      const result = await executeTransientScript(
+      const result = await executeTransientJavaScript(
         session.fridaSession,
         listMethodsJS(class_name),
         10000,
@@ -83,7 +83,7 @@ export function registerJavaTools(server: McpServer): void {
     },
     async ({ session_id, class_name }) => {
       const session = sessionManager.requireSession(session_id);
-      const result = await executeTransientScript(
+      const result = await executeTransientJavaScript(
         session.fridaSession,
         dumpClassJS(class_name),
         10000,
@@ -101,7 +101,7 @@ export function registerJavaTools(server: McpServer): void {
     },
     async ({ session_id, code }) => {
       const session = sessionManager.requireSession(session_id);
-      const result = await executeTransientScript(
+      const result = await executeTransientJavaScript(
         session.fridaSession,
         runJavaJS(code),
         15000,
@@ -127,7 +127,7 @@ export function registerJavaTools(server: McpServer): void {
       const hookId = script_id || `java_hook_${Date.now()}`;
       const code = hookJavaMethodJS(class_name, method_name, hookId, log_args, log_retval, log_backtrace);
 
-      const script = await createV8Script(session.fridaSession, code);
+      const script = await createJavaBridgeScript(session.fridaSession, code);
       script.message.connect((message, data: Buffer | null) => {
         sessionManager.pushMessage(session_id, {
           type: message.type,

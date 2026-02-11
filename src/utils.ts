@@ -7,6 +7,12 @@
 
 import frida from "frida";
 import type { Session, Script } from "frida";
+import { createHash } from "node:crypto";
+import { mkdtemp, rm, writeFile, access } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 
 /**
  * Resolve a Frida device by optional ID, defaulting to USB.
@@ -112,10 +118,83 @@ export interface TransientResult {
 }
 
 /**
- * Frida 17 Java-dependent scripts should run on V8 runtime for bridge support.
+ * Frida 17 scripts run on V8 for parity with modern Frida tooling.
  */
 export async function createV8Script(session: Session, source: string): Promise<Script> {
   return session.createScript(source, { runtime: frida.ScriptRuntime.V8 });
+}
+
+const javaBridgeEntrypoint = fileURLToPath(
+  new URL("../node_modules/frida-java-bridge/index.js", import.meta.url),
+);
+const compiler = new frida.Compiler();
+const javaBundleCache = new Map<string, Promise<string>>();
+const javaSymbolPattern = /(^|[^\w$])Java([^\w$]|$)/;
+
+/**
+ * Heuristic: source references the Frida Java runtime bridge global.
+ */
+export function sourceUsesJavaBridge(source: string): boolean {
+  return javaSymbolPattern.test(source);
+}
+
+async function ensureJavaBridgeInstalled(): Promise<void> {
+  try {
+    await access(javaBridgeEntrypoint, fsConstants.R_OK);
+  } catch {
+    throw new Error(
+      "frida-java-bridge is not installed. Run: npm install frida-java-bridge",
+    );
+  }
+}
+
+/**
+ * Compile source as an ES module that imports frida-java-bridge and exposes
+ * it as global Java, compatible with Frida 17 raw createScript workflows.
+ */
+async function compileJavaBridgeBundle(source: string): Promise<string> {
+  const hash = createHash("sha256").update(source).digest("hex");
+  const cached = javaBundleCache.get(hash);
+  if (cached) {
+    return cached;
+  }
+
+  const pending = (async () => {
+    await ensureJavaBridgeInstalled();
+
+    const dir = await mkdtemp(join(tmpdir(), "frida-mcp-java-bridge-"));
+    const entryPath = join(dir, `agent-${hash}.mjs`);
+    const entrySource = [
+      `import Java from ${JSON.stringify(javaBridgeEntrypoint)};`,
+      "globalThis.Java = Java;",
+      source,
+      "",
+    ].join("\n");
+
+    await writeFile(entryPath, entrySource, "utf8");
+
+    try {
+      return await compiler.build(entryPath);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  })();
+
+  javaBundleCache.set(hash, pending);
+  try {
+    return await pending;
+  } catch (e) {
+    javaBundleCache.delete(hash);
+    throw e;
+  }
+}
+
+/**
+ * Create a Frida script with Java bridge preloaded for Frida 17.
+ */
+export async function createJavaBridgeScript(session: Session, source: string): Promise<Script> {
+  const bundle = await compileJavaBridgeBundle(source);
+  return createV8Script(session, bundle);
 }
 
 /**
@@ -127,10 +206,32 @@ export async function executeTransientScript(
   code: string,
   timeoutMs = 5000,
 ): Promise<TransientResult> {
-  const wrapped = wrapForExecution(code);
-  const script: Script = await createV8Script(session, wrapped);
+  return executeTransientScriptInternal(session, code, timeoutMs, false);
+}
 
-  return new Promise<TransientResult>((resolve, reject) => {
+/**
+ * Execute JS in a Frida session with the Java bridge preloaded.
+ */
+export async function executeTransientJavaScript(
+  session: Session,
+  code: string,
+  timeoutMs = 5000,
+): Promise<TransientResult> {
+  return executeTransientScriptInternal(session, code, timeoutMs, true);
+}
+
+async function executeTransientScriptInternal(
+  session: Session,
+  code: string,
+  timeoutMs: number,
+  useJavaBridge: boolean,
+): Promise<TransientResult> {
+  const wrapped = wrapForExecution(code);
+  const script: Script = useJavaBridge
+    ? await createJavaBridgeScript(session, wrapped)
+    : await createV8Script(session, wrapped);
+
+  return new Promise<TransientResult>((resolve) => {
     let settled = false;
 
     const timer = setTimeout(async () => {
