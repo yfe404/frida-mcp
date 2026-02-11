@@ -136,11 +136,36 @@ export class SessionManager {
     }
   }
 
-  drainMessages(sessionId: string): ScriptMessage[] {
+  peekMessages(sessionId: string): ScriptMessage[] {
     const session = this.sessions.get(sessionId);
     if (!session) return [];
-    const msgs = [...session.messages];
+    return [...session.messages];
+  }
+
+  clearMessages(sessionId: string): number {
+    const session = this.sessions.get(sessionId);
+    if (!session) return 0;
+    const cleared = session.messages.length;
     session.messages.length = 0;
+    return cleared;
+  }
+
+  clearMessageRange(sessionId: string, offset: number, count: number): number {
+    const session = this.sessions.get(sessionId);
+    if (!session) return 0;
+    if (count <= 0) return 0;
+
+    const start = Math.max(0, Math.min(offset, session.messages.length));
+    const size = Math.max(0, Math.min(count, session.messages.length - start));
+    if (size === 0) return 0;
+
+    session.messages.splice(start, size);
+    return size;
+  }
+
+  drainMessages(sessionId: string): ScriptMessage[] {
+    const msgs = this.peekMessages(sessionId);
+    this.clearMessages(sessionId);
     return msgs;
   }
 }

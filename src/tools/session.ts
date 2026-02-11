@@ -112,16 +112,27 @@ export function registerSessionTools(server: McpServer): void {
 
   server.tool(
     "get_session_messages",
-    "Retrieve and clear queued messages from persistent scripts in a session. Use limit/offset for pagination.",
+    "Retrieve queued messages from persistent scripts in a session with pagination. By default messages are preserved; use clear_mode to acknowledge returned messages or clear the queue.",
     {
       session_id: z.string().describe("Session ID"),
-      limit: z.number().optional().default(100).describe("Max messages to return (default: 100)"),
-      offset: z.number().optional().default(0).describe("Skip first N messages (default: 0)"),
+      limit: z.number().int().nonnegative().optional().default(100).describe("Max messages to return (default: 100)"),
+      offset: z.number().int().nonnegative().optional().default(0).describe("Skip first N messages (default: 0)"),
+      clear_mode: z.enum(["none", "returned", "all"]).optional().default("none").describe("Message clearing strategy: none=preserve queue, returned=remove only this page, all=clear entire queue"),
     },
-    async ({ session_id, limit, offset }) => {
+    async ({ session_id, limit, offset, clear_mode }) => {
       sessionManager.requireSession(session_id);
-      const allMessages = sessionManager.drainMessages(session_id);
+      const allMessages = sessionManager.peekMessages(session_id);
+      const totalMessages = allMessages.length;
       const page = allMessages.slice(offset, offset + limit);
+
+      let cleared = 0;
+      if (clear_mode === "returned") {
+        cleared = sessionManager.clearMessageRange(session_id, offset, page.length);
+      } else if (clear_mode === "all") {
+        cleared = sessionManager.clearMessages(session_id);
+      }
+
+      const remaining = sessionManager.peekMessages(session_id).length;
       return {
         content: [{
           type: "text",
@@ -129,9 +140,12 @@ export function registerSessionTools(server: McpServer): void {
             status: "success",
             session_id,
             messages_retrieved: page.length,
-            total_messages: allMessages.length,
+            total_messages: totalMessages,
             offset,
             limit,
+            clear_mode,
+            messages_cleared: cleared,
+            remaining_messages: remaining,
             messages: page,
           }),
         }],

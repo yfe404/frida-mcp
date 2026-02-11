@@ -70,7 +70,7 @@ Restart Claude Code to pick up the new server.
 |------|-------------|------------|
 | `create_interactive_session` | Attach and create a managed session | `process_id`, `device_id?` |
 | `execute_in_session` | Execute JS in session (transient or persistent) | `session_id`, `javascript_code`, `keep_alive?` |
-| `get_session_messages` | Retrieve queued messages with pagination | `session_id`, `limit?`, `offset?` |
+| `get_session_messages` | Retrieve queued messages with pagination (persistent by default) | `session_id`, `limit?`, `offset?`, `clear_mode?` |
 
 ### Script Management Tools (4)
 

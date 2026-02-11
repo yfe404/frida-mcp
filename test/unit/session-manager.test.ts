@@ -131,19 +131,50 @@ describe("SessionManager", () => {
   });
 
   describe("message queue", () => {
-    it("pushes and drains messages", () => {
+    it("pushes and peeks messages without clearing", () => {
       mgr.addSession("s1", mockFridaSession(), mockFridaDevice(), 42);
       const msg: ScriptMessage = { type: "send", payload: { test: 1 }, timestamp: Date.now() };
       mgr.pushMessage("s1", msg);
       mgr.pushMessage("s1", { type: "send", payload: { test: 2 }, timestamp: Date.now() });
 
+      const peeked = mgr.peekMessages("s1");
+      assert.equal(peeked.length, 2);
+      assert.equal((peeked[0].payload as any).test, 1);
+
+      // Queue should remain intact after peek
+      assert.equal(mgr.peekMessages("s1").length, 2);
+    });
+
+    it("clears all messages and returns cleared count", () => {
+      mgr.addSession("s1", mockFridaSession(), mockFridaDevice(), 42);
+      mgr.pushMessage("s1", { type: "send", payload: { test: 1 }, timestamp: Date.now() });
+      mgr.pushMessage("s1", { type: "send", payload: { test: 2 }, timestamp: Date.now() });
+
+      const cleared = mgr.clearMessages("s1");
+      assert.equal(cleared, 2);
+      assert.equal(mgr.peekMessages("s1").length, 0);
+    });
+
+    it("clears a range of messages for paged acknowledgements", () => {
+      mgr.addSession("s1", mockFridaSession(), mockFridaDevice(), 42);
+      for (let i = 0; i < 5; i++) {
+        mgr.pushMessage("s1", { type: "send", payload: i, timestamp: Date.now() });
+      }
+
+      const cleared = mgr.clearMessageRange("s1", 1, 2);
+      assert.equal(cleared, 2);
+      const remaining = mgr.peekMessages("s1").map((m) => m.payload);
+      assert.deepEqual(remaining, [0, 3, 4]);
+    });
+
+    it("still supports drain semantics", () => {
+      mgr.addSession("s1", mockFridaSession(), mockFridaDevice(), 42);
+      mgr.pushMessage("s1", { type: "send", payload: { test: 1 }, timestamp: Date.now() });
+      mgr.pushMessage("s1", { type: "send", payload: { test: 2 }, timestamp: Date.now() });
+
       const drained = mgr.drainMessages("s1");
       assert.equal(drained.length, 2);
-      assert.equal((drained[0].payload as any).test, 1);
-
-      // Queue should be empty after drain
-      const again = mgr.drainMessages("s1");
-      assert.equal(again.length, 0);
+      assert.equal(mgr.peekMessages("s1").length, 0);
     });
 
     it("caps messages at 1000", () => {
@@ -151,15 +182,16 @@ describe("SessionManager", () => {
       for (let i = 0; i < 1100; i++) {
         mgr.pushMessage("s1", { type: "send", payload: i, timestamp: Date.now() });
       }
-      const drained = mgr.drainMessages("s1");
-      assert.equal(drained.length, 1000);
+      const peeked = mgr.peekMessages("s1");
+      assert.equal(peeked.length, 1000);
       // Should have the latest messages (100-1099)
-      assert.equal(drained[0].payload, 100);
+      assert.equal(peeked[0].payload, 100);
     });
 
     it("returns empty for nonexistent session", () => {
-      const drained = mgr.drainMessages("nonexistent");
-      assert.equal(drained.length, 0);
+      assert.equal(mgr.peekMessages("nonexistent").length, 0);
+      assert.equal(mgr.clearMessages("nonexistent"), 0);
+      assert.equal(mgr.clearMessageRange("nonexistent", 0, 10), 0);
     });
 
     it("ignores push for nonexistent session", () => {
