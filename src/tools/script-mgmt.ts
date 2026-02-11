@@ -10,6 +10,7 @@ import { z } from "zod";
 import { readFile } from "node:fs/promises";
 import { resolve as pathResolve } from "node:path";
 import { sessionManager } from "../state.js";
+import { createV8Script } from "../utils.js";
 
 export function registerScriptMgmtTools(server: McpServer): void {
   server.tool(
@@ -26,7 +27,7 @@ export function registerScriptMgmtTools(server: McpServer): void {
       const source = await readFile(absPath, "utf-8");
       const sid = script_id || sessionManager.generateScriptId();
 
-      const script = await session.fridaSession.createScript(source);
+      const script = await createV8Script(session.fridaSession, source);
 
       // Attach message handler for persistent messages
       script.message.connect((message, data: Buffer | null) => {

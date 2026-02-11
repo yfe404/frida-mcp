@@ -8,7 +8,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { sessionManager } from "../state.js";
-import { executeTransientScript, truncateResult } from "../utils.js";
+import { executeTransientScript, truncateResult, createV8Script } from "../utils.js";
 import {
   listClassesJS,
   findInstancesJS,
@@ -127,7 +127,7 @@ export function registerJavaTools(server: McpServer): void {
       const hookId = script_id || `java_hook_${Date.now()}`;
       const code = hookJavaMethodJS(class_name, method_name, hookId, log_args, log_retval, log_backtrace);
 
-      const script = await session.fridaSession.createScript(code);
+      const script = await createV8Script(session.fridaSession, code);
       script.message.connect((message, data: Buffer | null) => {
         sessionManager.pushMessage(session_id, {
           type: message.type,

@@ -43,7 +43,7 @@ describe("Device smoke tests", { skip: !hasDevice ? "No USB device available" : 
     assert.ok(session);
 
     // Execute simple code
-    const script = await session.createScript("send(Process.arch);");
+    const script = await session.createScript("send(Process.arch);", { runtime: "v8" });
     const result = await new Promise<string>((resolve) => {
       script.message.connect((msg) => {
         if (msg.type === "send") resolve(msg.payload as string);
@@ -69,7 +69,7 @@ describe("Device smoke tests", { skip: !hasDevice ? "No USB device available" : 
         for (var i = 0; i < mods.length; i++) names.push(mods[i].name);
         send(names);
       })();
-    `);
+    `, { runtime: "v8" });
     const result = await new Promise<string[]>((resolve) => {
       script.message.connect((msg) => {
         if (msg.type === "send") resolve(msg.payload as string[]);

@@ -7,7 +7,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { resolveDevice, executeTransientScript, wrapForExecution, truncateResult } from "../utils.js";
+import { resolveDevice, executeTransientScript, wrapForExecution, truncateResult, createV8Script } from "../utils.js";
 import { sessionManager } from "../state.js";
 import type { ScriptMessage } from "../state.js";
 
@@ -63,7 +63,7 @@ export function registerSessionTools(server: McpServer): void {
 
         // Persistent: load script, attach message handler, keep alive
         const wrapped = wrapForExecution(javascript_code);
-        const script = await session.fridaSession.createScript(wrapped);
+        const script = await createV8Script(session.fridaSession, wrapped);
         const scriptId = sessionManager.generateScriptId();
 
         script.message.connect((message, data: Buffer | null) => {

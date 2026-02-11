@@ -17,6 +17,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
     "frida": "^17.6.2",
+    "frida-java-bridge": "^7.0.12",
     "zod": "^3.25.0"
   },
   "devDependencies": {

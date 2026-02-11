@@ -112,6 +112,13 @@ export interface TransientResult {
 }
 
 /**
+ * Frida 17 Java-dependent scripts should run on V8 runtime for bridge support.
+ */
+export async function createV8Script(session: Session, source: string): Promise<Script> {
+  return session.createScript(source, { runtime: frida.ScriptRuntime.V8 });
+}
+
+/**
  * Execute JS in a Frida session, collect result via Promise (not sleep),
  * then unload the script. Timeout defaults to 5s.
  */
@@ -121,7 +128,7 @@ export async function executeTransientScript(
   timeoutMs = 5000,
 ): Promise<TransientResult> {
   const wrapped = wrapForExecution(code);
-  const script: Script = await session.createScript(wrapped);
+  const script: Script = await createV8Script(session, wrapped);
 
   return new Promise<TransientResult>((resolve, reject) => {
     let settled = false;

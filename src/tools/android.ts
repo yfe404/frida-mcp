@@ -6,7 +6,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { sessionManager } from "../state.js";
-import { resolveDevice, executeTransientScript, truncateResult } from "../utils.js";
+import { resolveDevice, executeTransientScript, truncateResult, createV8Script } from "../utils.js";
 import {
   sslPinningDisableJS,
   getCurrentActivityJS,
@@ -27,7 +27,7 @@ export function registerAndroidTools(server: McpServer): void {
       const id = script_id || `ssl_bypass_${Date.now()}`;
       const code = sslPinningDisableJS();
 
-      const script = await session.fridaSession.createScript(code);
+      const script = await createV8Script(session.fridaSession, code);
       script.message.connect((message, data: Buffer | null) => {
         sessionManager.pushMessage(session_id, {
           type: message.type,

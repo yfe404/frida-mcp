@@ -252,6 +252,7 @@ This server is built for Frida 17 compatibility. Key differences from older Frid
 - **No `Memory.readX()` static methods** — Use `NativePointer` instance methods: `ptr(addr).readU32()`
 - **No `enumerateXSync()` methods** — Use `Process.enumerateModules()`, `module.enumerateExports()`
 - **`var` instead of `const`/`let`** in injected scripts — Avoids issues with Frida's V8 runtime in some contexts
+- **Force `runtime: "v8"` on loaded scripts** — Keeps Java APIs available for Android-focused tooling
 
 The `search_frida_docs` tool automatically boosts the migration guide when you query deprecated API names.
 

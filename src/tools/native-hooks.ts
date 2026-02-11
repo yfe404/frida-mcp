@@ -6,7 +6,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { sessionManager } from "../state.js";
-import { executeTransientScript, resolveAddressJS } from "../utils.js";
+import { resolveAddressJS, createV8Script } from "../utils.js";
 import { hookFunctionJS, getBacktraceAsyncJS } from "../injected/hook-templates.js";
 
 export function registerNativeHookTools(server: McpServer): void {
@@ -28,7 +28,7 @@ export function registerNativeHookTools(server: McpServer): void {
       const code = hookFunctionJS(addrExpr, log_args, log_retval, num_args, hookId);
 
       // Load as persistent script so hook messages accumulate
-      const script = await session.fridaSession.createScript(code);
+      const script = await createV8Script(session.fridaSession, code);
       script.message.connect((message, data: Buffer | null) => {
         sessionManager.pushMessage(session_id, {
           type: message.type,
@@ -69,7 +69,7 @@ export function registerNativeHookTools(server: McpServer): void {
       const addrExpr = resolveAddressJS(address);
       const code = getBacktraceAsyncJS(addrExpr, style, hookId);
 
-      const script = await session.fridaSession.createScript(code);
+      const script = await createV8Script(session.fridaSession, code);
       script.message.connect((message, data: Buffer | null) => {
         sessionManager.pushMessage(session_id, {
           type: message.type,
