@@ -77,7 +77,7 @@ export function registerSessionTools(server: McpServer): void {
     {
       process_id: z.number().describe("PID to attach to"),
       device_id: z.string().optional().describe("Device ID (default: USB)"),
-      spawn_fallback: z.boolean().optional().default(true).describe("If attach fails with ptrace-like error, try spawn+attach fallback"),
+      spawn_fallback: z.boolean().optional().default(false).describe("If attach fails with ptrace-like error, try spawn+attach fallback (default: false)"),
       app_identifier: z.string().optional().describe("Optional app/package identifier to use for spawn fallback"),
       auto_resume_spawned: z.boolean().optional().default(false).describe("Resume the spawned process automatically when fallback succeeds"),
     },
@@ -169,6 +169,7 @@ export function registerSessionTools(server: McpServer): void {
               status: "error",
               error: errorText,
               fallback_attempted: false,
+              spawn_fallback_enabled: spawn_fallback,
               diagnostics: {
                 ...diagnostics,
                 hints: isPTraceLikeAttachError(errorText) ? ptraceHints() : undefined,

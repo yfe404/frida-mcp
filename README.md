@@ -68,7 +68,7 @@ Restart Claude Code to pick up the new server.
 
 | Tool | Description | Key Params |
 |------|-------------|------------|
-| `create_interactive_session` | Attach and create a managed session (with optional spawn fallback) | `process_id`, `device_id?`, `spawn_fallback?`, `app_identifier?`, `auto_resume_spawned?` |
+| `create_interactive_session` | Attach and create a managed session (spawn fallback is opt-in) | `process_id`, `device_id?`, `spawn_fallback?`, `app_identifier?`, `auto_resume_spawned?` |
 | `execute_in_session` | Execute JS in session (transient or persistent) | `session_id`, `javascript_code`, `keep_alive?` |
 | `get_session_messages` | Retrieve queued messages with pagination (persistent by default) | `session_id`, `limit?`, `offset?`, `clear_mode?` |
 
