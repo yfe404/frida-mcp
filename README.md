@@ -259,7 +259,7 @@ The `search_frida_docs` tool automatically boosts the migration guide when you q
 
 ## Operational Skill (Recommended)
 
-For reliable Frida MCP operation (Frida 17), use the companion skills repository: `git@github.com:yfe404/frida-mcp-skills.git`.
+For reliable Frida MCP operation (Frida 17), use the companion skills repository: `https://github.com/yfe404/frida-mcp-skills`.
 
 The `frida-mcp-workflow` skill enforces a strict workflow: `Idea -> Scripting -> Execution -> Notes`. It also enforces docs-first usage, file-based scripts over large inline payloads, and script lifecycle hygiene (track/unload scripts to avoid duplicate hooks on the same target).
 
