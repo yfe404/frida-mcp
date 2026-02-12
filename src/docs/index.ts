@@ -24,6 +24,11 @@ export interface DocData {
   sections: DocSection[];
 }
 
+export interface DocSearchResult {
+  items: DocSection[];
+  totalMatches: number;
+}
+
 // Known deprecated identifiers that should boost the migration section
 const DEPRECATED_NAMES = [
   "Module.findExportByName",
@@ -72,14 +77,37 @@ export class DocStore {
   }
 
   search(query: string, limit = 5): DocSection[] {
-    if (this.sections.length === 0) return [];
+    return this.searchWithMeta(query, limit, 0).items;
+  }
 
+  searchWithMeta(query: string, limit = 5, offset = 0): DocSearchResult {
+    if (this.sections.length === 0) {
+      return { items: [], totalMatches: 0 };
+    }
+
+    const normalizedLimit = Math.max(0, Math.trunc(limit));
+    const normalizedOffset = Math.max(0, Math.trunc(offset));
+    const scored = this.scoreSections(query);
+    const totalMatches = scored.length;
+    if (normalizedLimit === 0) {
+      return { items: [], totalMatches };
+    }
+    const items = scored
+      .slice(normalizedOffset, normalizedOffset + normalizedLimit)
+      .map((s) => s.section);
+
+    return { items, totalMatches };
+  }
+
+  private scoreSections(query: string): Array<{ section: DocSection; score: number }> {
     const tokens = query
       .toLowerCase()
       .split(/[\s.,:;()+]+/)
       .filter((t) => t.length > 1);
 
-    if (tokens.length === 0) return this.sections.slice(0, limit);
+    if (tokens.length === 0) {
+      return this.sections.map((section) => ({ section, score: 1 }));
+    }
 
     // Check if query references deprecated APIs
     const mentionsDeprecated = DEPRECATED_NAMES.some(
@@ -108,9 +136,7 @@ export class DocStore {
 
     return scored
       .filter((s) => s.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit)
-      .map((s) => s.section);
+      .sort((a, b) => b.score - a.score);
   }
 
   getSection(id: string): DocSection | undefined {

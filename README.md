@@ -124,7 +124,7 @@ Restart Claude Code to pick up the new server.
 
 | Tool | Description | Key Params |
 |------|-------------|------------|
-| `search_frida_docs` | Full-text search Frida 17 API docs | `query`, `limit?` |
+| `search_frida_docs` | Full-text search Frida 17 API docs (size-safe paginated snippets) | `query`, `limit?`, `offset?`, `snippet_chars?` |
 
 ## Resources
 
@@ -242,6 +242,7 @@ src/
 ```
 1. search_frida_docs("Module.findExportByName") → migration guide ranked first
 2. search_frida_docs("Interceptor.attach") → instrumentation section with examples
+3. search_frida_docs("Java.perform", limit=3, offset=3) → next page of snippet results
 ```
 
 ## Frida 17 Notes

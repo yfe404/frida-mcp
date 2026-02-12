@@ -92,6 +92,30 @@ describe("DocStore", () => {
     });
   });
 
+  describe("searchWithMeta", () => {
+    it("returns total match count for paged query", () => {
+      const page = store.searchWithMeta("module", 1, 0);
+      assert.ok(page.totalMatches >= page.items.length);
+      assert.equal(page.items.length, 1);
+    });
+
+    it("supports offset pagination", () => {
+      const page1 = store.searchWithMeta("module", 1, 0);
+      const page2 = store.searchWithMeta("module", 1, 1);
+      if (page1.totalMatches > 1 && page2.items.length > 0) {
+        assert.notEqual(page1.items[0].id, page2.items[0].id);
+      } else {
+        assert.ok(true);
+      }
+    });
+
+    it("returns empty items for offset beyond range", () => {
+      const page = store.searchWithMeta("module", 3, 999);
+      assert.equal(page.items.length, 0);
+      assert.ok(page.totalMatches >= 0);
+    });
+  });
+
   describe("empty store", () => {
     it("isEmpty returns true for store with no data", () => {
       const empty = DocStore.fromData({ version: "0", sections: [] });

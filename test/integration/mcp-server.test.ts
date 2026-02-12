@@ -101,7 +101,7 @@ describe("MCP Server Integration", () => {
     it("returns results for valid query", async () => {
       const result = await client.callTool({
         name: "search_frida_docs",
-        arguments: { query: "Interceptor" },
+        arguments: { query: "Interceptor", limit: 2, offset: 0, snippet_chars: 800 },
       });
       assert.ok(result.content);
       assert.equal(result.content.length, 1);
@@ -109,6 +109,50 @@ describe("MCP Server Integration", () => {
       // Should return results or no_docs (depending on whether frida-api.json is built)
       const parsed = JSON.parse(text);
       assert.ok(parsed.status === "success" || parsed.status === "no_docs" || parsed.status === "no_results");
+      if (parsed.status === "success") {
+        assert.equal(parsed.query, "Interceptor");
+        assert.equal(typeof parsed.total_matches, "number");
+        assert.equal(typeof parsed.returned_count, "number");
+        assert.ok(Array.isArray(parsed.results));
+        if (parsed.results.length > 0) {
+          const first = parsed.results[0];
+          assert.equal(typeof first.snippet, "string");
+          assert.ok(!("content" in first), "content must not be returned anymore");
+        }
+      }
+    });
+
+    it("supports pagination and response size budgeting", async () => {
+      const broad = await client.callTool({
+        name: "search_frida_docs",
+        arguments: { query: "Java.perform Java.use Android", limit: 20, offset: 0, snippet_chars: 3000 },
+      });
+      const broadText = (broad.content[0] as { text: string }).text;
+      assert.ok(broadText.length < 30000, "docs response should stay under MCP-safe size");
+
+      const page1 = await client.callTool({
+        name: "search_frida_docs",
+        arguments: { query: "Java", limit: 1, offset: 0 },
+      });
+      const page2 = await client.callTool({
+        name: "search_frida_docs",
+        arguments: { query: "Java", limit: 1, offset: 1 },
+      });
+
+      const p1 = JSON.parse((page1.content[0] as { text: string }).text);
+      const p2 = JSON.parse((page2.content[0] as { text: string }).text);
+
+      if (p1.status === "success" && p2.status === "success" && p1.results.length > 0 && p2.results.length > 0) {
+        if (p1.total_matches > 1) {
+          assert.notEqual(p1.results[0].id, p2.results[0].id);
+        }
+        assert.equal(typeof p1.next_offset === "number" || p1.next_offset === null, true);
+      } else {
+        assert.ok(
+          ["success", "no_docs", "no_results"].includes(p1.status)
+          && ["success", "no_docs", "no_results"].includes(p2.status),
+        );
+      }
     });
   });
 
