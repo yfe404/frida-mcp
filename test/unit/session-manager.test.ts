@@ -1,5 +1,8 @@
-import { describe, it, beforeEach } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, rm, readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { SessionManager } from "../../src/state.js";
 import type { ManagedSession, ScriptMessage } from "../../src/state.js";
 
@@ -24,9 +27,15 @@ function mockFridaScript(): any {
 
 describe("SessionManager", () => {
   let mgr: SessionManager;
+  let blobDir: string;
 
-  beforeEach(() => {
-    mgr = new SessionManager();
+  beforeEach(async () => {
+    blobDir = await mkdtemp(join(tmpdir(), "frida-mcp-test-"));
+    mgr = new SessionManager({ blobBaseDir: blobDir });
+  });
+
+  afterEach(async () => {
+    await rm(blobDir, { recursive: true, force: true });
   });
 
   describe("session ID generation", () => {
@@ -186,6 +195,49 @@ describe("SessionManager", () => {
       assert.equal(peeked.length, 1000);
       // Should have the latest messages (100-1099)
       assert.equal(peeked[0].payload, 100);
+    });
+
+    it("offloads large payloads to disk and keeps a preview", async () => {
+      const big = "x".repeat(500);
+      const localMgr = new SessionManager({
+        blobBaseDir: blobDir,
+        inlinePayloadMaxChars: 20,
+        inlineDataMaxBytes: 16,
+      });
+      localMgr.addSession("s1", mockFridaSession(), mockFridaDevice(), 42);
+      localMgr.pushMessage("s1", { type: "send", payload: big, timestamp: Date.now() });
+
+      const [m] = localMgr.peekMessages("s1");
+      assert.ok(m);
+      assert.equal(typeof m.payload, "string");
+      assert.ok((m.payload as string).length <= 20);
+      assert.ok(m.payload_blob_id);
+      assert.equal(m.payload_size_chars, big.length);
+
+      const onDisk = await readFile(join(blobDir, m.payload_blob_id!), "utf8");
+      assert.equal(onDisk, big);
+    });
+
+    it("offloads large Buffers to disk and keeps a base64 preview", async () => {
+      const buf = Buffer.alloc(64, 0x41); // 'A'
+      const localMgr = new SessionManager({
+        blobBaseDir: blobDir,
+        inlinePayloadMaxChars: 1000,
+        inlineDataMaxBytes: 8,
+      });
+      localMgr.addSession("s1", mockFridaSession(), mockFridaDevice(), 42);
+      localMgr.pushMessage("s1", { type: "send", payload: { ok: true }, data: buf, timestamp: Date.now() });
+
+      const [m] = localMgr.peekMessages("s1");
+      assert.ok(m);
+      assert.equal(typeof m.data_preview_base64, "string");
+      assert.ok(m.data_preview_base64.length > 0);
+      assert.equal(m.data_size_bytes, buf.length);
+      assert.ok(m.data_blob_id);
+
+      const onDisk = await readFile(join(blobDir, m.data_blob_id!));
+      assert.equal(onDisk.length, buf.length);
+      assert.equal(onDisk[0], 0x41);
     });
 
     it("returns empty for nonexistent session", () => {

@@ -18,6 +18,7 @@ import {
   sourceUsesJavaBridge,
 } from "../utils.js";
 import { sessionManager } from "../state.js";
+import { readBlobChunk, readJsonlPage } from "../message-store.js";
 
 function isPTraceLikeAttachError(errorText: string): boolean {
   return /(ptrace|pokedata|permission denied|operation not permitted|i\/o error)/i.test(errorText);
@@ -241,7 +242,7 @@ export function registerSessionTools(server: McpServer): void {
 
   server.tool(
     "get_session_messages",
-    "Retrieve queued messages from persistent scripts in a session with pagination. By default messages are preserved; use clear_mode to acknowledge returned messages or clear the queue.",
+    "Retrieve queued messages from persistent scripts in a session with pagination. Messages are stored with token-safe previews; large payload/data may be offloaded to disk and referenced by blob ids. Use read_session_message_blob to fetch full content.",
     {
       session_id: z.string().describe("Session ID"),
       limit: z.number().int().nonnegative().optional().default(100).describe("Max messages to return (default: 100)"),
@@ -275,6 +276,104 @@ export function registerSessionTools(server: McpServer): void {
             clear_mode,
             messages_cleared: cleared,
             remaining_messages: remaining,
+            messages: page,
+          }),
+        }],
+      };
+    },
+  );
+
+  server.tool(
+    "read_session_message_blob",
+    "Read an offloaded message blob (payload/data) in bounded chunks to control token usage.",
+    {
+      session_id: z.string().describe("Session ID"),
+      blob_id: z.string().describe("Blob id returned by get_session_messages (e.g. '<session_id>/123_payload.json')"),
+      offset: z.number().int().nonnegative().optional().default(0).describe("Byte offset to start reading from (default: 0)"),
+      limit: z.number().int().nonnegative().optional().default(4096).describe("Max bytes to read (default: 4096, capped by encoding)"),
+      encoding: z.enum(["utf8", "base64", "hex"]).optional().default("utf8").describe("How to encode returned bytes (default: utf8)"),
+    },
+    async ({ session_id, blob_id, offset, limit, encoding }) => {
+      sessionManager.requireSession(session_id);
+
+      if (!blob_id.startsWith(`${session_id}/`)) {
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              status: "error",
+              error: "blob_id must start with '<session_id>/'",
+              session_id,
+              blob_id,
+            }),
+          }],
+        };
+      }
+
+      const maxLimit = encoding === "hex" ? 10_000 : encoding === "base64" ? 15_000 : 20_000;
+      const cappedLimit = Math.min(Math.max(0, limit), maxLimit);
+      const baseDir = sessionManager.getBlobBaseDir();
+
+      try {
+        const res = await readBlobChunk(baseDir, blob_id, offset, cappedLimit);
+        const chunkStr = encoding === "base64"
+          ? res.chunk.toString("base64")
+          : encoding === "hex"
+            ? res.chunk.toString("hex")
+            : res.chunk.toString("utf8");
+        const nextOffset = (offset + res.bytes_read) < res.total_bytes ? (offset + res.bytes_read) : null;
+        return {
+          content: [{
+            type: "text",
+            text: truncateResult({
+              status: "success",
+              session_id,
+              blob_id,
+              total_bytes: res.total_bytes,
+              offset,
+              limit: cappedLimit,
+              encoding,
+              bytes_read: res.bytes_read,
+              data: chunkStr,
+              next_offset: nextOffset,
+            }),
+          }],
+        };
+      } catch (e) {
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({ status: "error", error: String(e), session_id, blob_id }),
+          }],
+        };
+      }
+    },
+  );
+
+  server.tool(
+    "get_archived_session_messages",
+    "List archived session messages that were cleared or evicted from the in-memory queue.",
+    {
+      session_id: z.string().describe("Session ID"),
+      limit: z.number().int().nonnegative().optional().default(100).describe("Max messages to return (default: 100)"),
+      offset: z.number().int().nonnegative().optional().default(0).describe("Skip first N archived messages (default: 0)"),
+    },
+    async ({ session_id, limit, offset }) => {
+      sessionManager.requireSession(session_id);
+      const archivePath = sessionManager.getArchivePath(session_id);
+      const totalArchived = sessionManager.getArchivedCount(session_id);
+      const page = await readJsonlPage(archivePath, offset, limit);
+
+      return {
+        content: [{
+          type: "text",
+          text: truncateResult({
+            status: "success",
+            session_id,
+            archived_messages_retrieved: page.length,
+            total_archived_messages: totalArchived,
+            offset,
+            limit,
             messages: page,
           }),
         }],

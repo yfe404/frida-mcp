@@ -52,9 +52,9 @@ describe("MCP Server Integration", () => {
   });
 
   describe("tools/list", () => {
-    it("returns all 37 tools", async () => {
+    it("returns all 39 tools", async () => {
       const result = await client.listTools();
-      assert.equal(result.tools.length, 37);
+      assert.equal(result.tools.length, 39);
     });
 
     it("each tool has description and inputSchema", async () => {
@@ -192,7 +192,7 @@ describe("MCP Server Integration", () => {
       });
       // Subsequent call should still work
       const result = await client.listTools();
-      assert.equal(result.tools.length, 37);
+      assert.equal(result.tools.length, 39);
     });
   });
 

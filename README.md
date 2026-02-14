@@ -1,6 +1,6 @@
 # frida-mcp-ts
 
-TypeScript MCP server for Frida 17 dynamic instrumentation. Provides 37 tools and 15 resources for attaching to processes, executing scripts, hooking native and Java methods, bypassing SSL pinning, reading/writing memory, inspecting Java heaps, and searching Frida 17 API documentation — all through the Model Context Protocol.
+TypeScript MCP server for Frida 17 dynamic instrumentation. Provides 39 tools and 15 resources for attaching to processes, executing scripts, hooking native and Java methods, bypassing SSL pinning, reading/writing memory, inspecting Java heaps, and searching Frida 17 API documentation — all through the Model Context Protocol.
 
 ## Quick Start
 
@@ -64,13 +64,15 @@ Restart Claude Code to pick up the new server.
 | `resume_process` | Resume a spawned/suspended process | `pid`, `device_id?` |
 | `kill_process` | Kill a process | `pid`, `device_id?` |
 
-### Session Tools (3)
+### Session Tools (5)
 
 | Tool | Description | Key Params |
 |------|-------------|------------|
 | `create_interactive_session` | Attach and create a managed session (spawn fallback is opt-in) | `process_id`, `device_id?`, `spawn_fallback?`, `app_identifier?`, `auto_resume_spawned?` |
 | `execute_in_session` | Execute JS in session (transient or persistent) | `session_id`, `javascript_code`, `keep_alive?` |
-| `get_session_messages` | Retrieve queued messages with pagination (persistent by default) | `session_id`, `limit?`, `offset?`, `clear_mode?` |
+| `get_session_messages` | Retrieve queued messages with pagination (previews; blobs for large fields) | `session_id`, `limit?`, `offset?`, `clear_mode?` |
+| `read_session_message_blob` | Read an offloaded message blob (payload/data) in bounded chunks | `session_id`, `blob_id`, `offset?`, `limit?`, `encoding?` |
+| `get_archived_session_messages` | List archived messages that were cleared/evicted from memory | `session_id`, `limit?`, `offset?` |
 
 ### Script Management Tools (4)
 
@@ -166,13 +168,13 @@ src/
 
 ### Key Patterns
 
-**SessionManager** — Unified state for all sessions, scripts, and messages. Replaces the Python server's 4 separate global dicts. Message queue is capped at 1000 to prevent unbounded memory growth.
+**SessionManager** — Unified state for all sessions, scripts, and messages. Replaces the Python server's 4 separate global dicts. Message queue is capped at 1000 to prevent unbounded memory growth; cleared/evicted messages are archived to disk as lightweight summaries, and large payload/data fields are offloaded to disk with blob references to keep tool output token-safe.
 
 **Injected JS generators** — Template functions that produce Frida 17-compliant JavaScript. Rules: `var` (not `const`/`let`), no arrow functions, instance methods on `NativePointer` (not `Memory.readX`), `Process.getModuleByName` (not `Module.*`).
 
 **Promise-based execution** — `executeTransientScript` uses Promise-based message collection instead of `time.sleep()`. Scripts send an `execution_receipt` message and are auto-unloaded after.
 
-**Output truncation** — `truncateResult()` binary-searches for the max array items that fit within 24KB to stay under MCP's token limit. Applied to `enumerate_processes`, `list_modules`, `list_exports`, `list_classes`, and `get_session_messages`.
+**Output truncation** — `truncateResult()` binary-searches for the max array items that fit within 24KB to stay under MCP's token limit. Applied to `enumerate_processes`, `list_modules`, `list_exports`, `list_classes`, `get_session_messages`, and `read_session_message_blob`.
 
 ## Usage Examples
 
