@@ -1,6 +1,6 @@
 # frida-mcp-ts
 
-TypeScript MCP server for Frida 17 dynamic instrumentation. Provides 39 tools and 15 resources for attaching to processes, executing scripts, hooking native and Java methods, bypassing SSL pinning, reading/writing memory, inspecting Java heaps, and searching Frida 17 API documentation — all through the Model Context Protocol.
+TypeScript MCP server for Frida 17 dynamic instrumentation. Provides 40 tools and 15 resources for attaching to processes, executing scripts, hooking native and Java methods, bypassing SSL pinning, reading/writing memory, inspecting Java heaps, exporting large captures to disk, and searching Frida 17 API documentation — all through the Model Context Protocol.
 
 ## Quick Start
 
@@ -83,6 +83,12 @@ Restart Claude Code to pick up the new server.
 | `unload_script` | Unload a script | `session_id`, `script_id` |
 | `call_rpc_export` | Call an RPC-exported method | `session_id`, `script_id`, `method`, `args?` |
 
+### Export Tools (1)
+
+| Tool | Description | Key Params |
+|------|-------------|------------|
+| `export_capture_bundle` | Export RPC output and captured messages to a disk JSONL bundle (token-safe summary response) | `session_id`, `rpc?`, `include_messages?`, `include_archived_messages?`, `clear_mode?`, `output_path?`, `format?` |
+
 ### Memory Tools (6)
 
 | Tool | Description | Key Params |
@@ -157,8 +163,9 @@ src/
 └── tools/
     ├── device.ts             # Device enumeration (4 tools)
     ├── process.ts            # Process management (6 tools)
-    ├── session.ts            # Session management (3 tools)
+    ├── session.ts            # Session management (5 tools)
     ├── script-mgmt.ts        # Script loading/RPC (4 tools)
+    ├── export.ts             # One-shot RPC + capture export (1 tool)
     ├── memory.ts             # Module/memory operations (6 tools)
     ├── java.ts               # Java introspection & hooking (6 tools)
     ├── native-hooks.ts       # Native hooking (2 tools)
@@ -201,6 +208,19 @@ src/
 2. hook_function(session_id, "libnative.so+0x1234", log_args=true, num_args=4) → hook_id
 3. (trigger the function on device)
 4. get_session_messages(session_id) → hook arg/retval logs
+```
+
+### One-step RPC + capture export to disk
+
+```
+1. create_interactive_session(pid) → session_id
+2. load_script(session_id, "/path/hook.js") → script_id
+3. export_capture_bundle(
+     session_id,
+     rpc={script_id, method:"getSignings"},
+     include_messages=true,
+     clear_mode="returned"
+   ) → output_path + compact summaries
 ```
 
 ### Hook a Java method

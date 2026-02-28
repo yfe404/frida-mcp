@@ -13,6 +13,7 @@ import { registerJavaTools } from "../../src/tools/java.js";
 import { registerNativeHookTools } from "../../src/tools/native-hooks.js";
 import { registerDocsTools } from "../../src/tools/docs.js";
 import { registerAndroidTools } from "../../src/tools/android.js";
+import { registerExportTools } from "../../src/tools/export.js";
 import { registerResources } from "../../src/resources.js";
 
 describe("MCP Server Integration", () => {
@@ -32,6 +33,7 @@ describe("MCP Server Integration", () => {
     registerNativeHookTools(server);
     registerDocsTools(server);
     registerAndroidTools(server);
+    registerExportTools(server);
     registerResources(server);
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -52,9 +54,9 @@ describe("MCP Server Integration", () => {
   });
 
   describe("tools/list", () => {
-    it("returns all 39 tools", async () => {
+    it("returns all 40 tools", async () => {
       const result = await client.listTools();
-      assert.equal(result.tools.length, 39);
+      assert.equal(result.tools.length, 40);
     });
 
     it("each tool has description and inputSchema", async () => {
@@ -85,6 +87,7 @@ describe("MCP Server Integration", () => {
       assert.ok(names.includes("list_apps"));
       assert.ok(names.includes("file_ls"));
       assert.ok(names.includes("file_read"));
+      assert.ok(names.includes("export_capture_bundle"));
     });
   });
 
@@ -184,6 +187,15 @@ describe("MCP Server Integration", () => {
       assert.ok(text.includes("not found") || text.includes("error"));
     });
 
+    it("returns error for nonexistent session (export_capture_bundle)", async () => {
+      const result = await client.callTool({
+        name: "export_capture_bundle",
+        arguments: { session_id: "nonexistent" },
+      });
+      const text = (result.content[0] as { text: string }).text;
+      assert.ok(text.includes("not found") || text.includes("error"));
+    });
+
     it("server stays healthy after error", async () => {
       // Trigger an error
       await client.callTool({
@@ -192,7 +204,7 @@ describe("MCP Server Integration", () => {
       });
       // Subsequent call should still work
       const result = await client.listTools();
-      assert.equal(result.tools.length, 39);
+      assert.equal(result.tools.length, 40);
     });
   });
 
