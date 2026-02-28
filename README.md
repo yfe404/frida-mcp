@@ -83,6 +83,28 @@ Restart Claude Code to pick up the new server.
 | `unload_script` | Unload a script | `session_id`, `script_id` |
 | `call_rpc_export` | Call an RPC-exported method | `session_id`, `script_id`, `method`, `args?` |
 
+#### Beginner: `load_script` vs `call_rpc_export`
+
+If you are new to Frida, think about this in two layers:
+
+- `load_script`: put your agent code inside the target app and keep it running.
+- `call_rpc_export`: call one function from that already-loaded agent.
+
+Simple rule:
+
+- You usually call `load_script` once.
+- You can call `call_rpc_export` many times after that.
+- When finished, call `unload_script`.
+
+Minimal flow:
+
+```text
+1) create_interactive_session(...)  -> session_id
+2) load_script(session_id, "agent.js") -> script_id
+3) call_rpc_export(session_id, script_id, "methodName", [...args]) -> result
+4) unload_script(session_id, script_id)
+```
+
 ### Export Tools (1)
 
 | Tool | Description | Key Params |
