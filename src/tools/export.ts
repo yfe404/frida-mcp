@@ -9,12 +9,48 @@ import { truncateResult } from "../utils.js";
 
 const RPC_PREVIEW_MAX_CHARS = 1200;
 const RPC_BLOB_THRESHOLD_CHARS = 2000;
+type ResponseDetail = "path_only" | "compact";
 
 const rpcRequestSchema = z.object({
   script_id: z.string().describe("Script ID that has the RPC export"),
   method: z.string().describe("RPC export method to call"),
   args: z.array(z.unknown()).optional().default([]).describe("Arguments to pass to the RPC export"),
 });
+
+function buildRpcSummary(
+  responseDetail: ResponseDetail,
+  summary: {
+    status: "success" | "error";
+    script_id: string;
+    method: string;
+    error?: string;
+    result_size_chars?: number;
+    blob_id?: string;
+    inline_preview?: string;
+  },
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    status: summary.status,
+    script_id: summary.script_id,
+    method: summary.method,
+  };
+
+  if (summary.status === "error") {
+    out.error = summary.error ?? "Unknown RPC export error";
+    return out;
+  }
+
+  if (summary.result_size_chars !== undefined) {
+    out.result_size_chars = summary.result_size_chars;
+  }
+  if (summary.blob_id) {
+    out.blob_id = summary.blob_id;
+  }
+  if (responseDetail === "compact" && summary.inline_preview !== undefined) {
+    out.inline_preview = summary.inline_preview;
+  }
+  return out;
+}
 
 export function registerExportTools(server: McpServer): void {
   server.tool(
@@ -28,8 +64,9 @@ export function registerExportTools(server: McpServer): void {
       clear_mode: z.enum(["none", "returned", "all"]).optional().default("none").describe("How to clear in-memory messages after export"),
       output_path: z.string().optional().describe("Optional output file path. Defaults under session blob directory."),
       format: z.enum(["jsonl"]).optional().default("jsonl").describe("Bundle format (v1 supports jsonl only)"),
+      response_detail: z.enum(["path_only", "compact"]).optional().default("path_only").describe("How much detail to return in the MCP response. path_only keeps results slim; compact adds previews."),
     },
-    async ({ session_id, rpc, include_messages, include_archived_messages, clear_mode, output_path, format }) => {
+    async ({ session_id, rpc, include_messages, include_archived_messages, clear_mode, output_path, format, response_detail }) => {
       sessionManager.requireSession(session_id);
 
       const resolved = resolveExportPath(sessionManager.getBlobBaseDir(), session_id, output_path);
@@ -99,26 +136,32 @@ export function registerExportTools(server: McpServer): void {
               blobId = blobWrite.blob_id;
             }
 
-            appendRecord({
+            const rpcRecord: Record<string, unknown> = {
               kind: "rpc_result",
               ts: Date.now(),
               session_id,
               script_id: rpc.script_id,
               method: rpc.method,
               args: rpc.args,
-              result_json: resultJson,
               result_size_chars: resultSizeChars,
-              result_blob_id: blobId,
-            });
+            };
+            if (blobId) {
+              rpcRecord.result_blob_id = blobId;
+              rpcRecord.result_preview = preview;
+              rpcRecord.result_preview_truncated = preview.length < resultSizeChars;
+            } else {
+              rpcRecord.result_json = resultJson;
+            }
+            appendRecord(rpcRecord);
 
-            rpcSummary = {
+            rpcSummary = buildRpcSummary(response_detail, {
               status: "success",
               script_id: rpc.script_id,
               method: rpc.method,
               result_size_chars: resultSizeChars,
               inline_preview: preview,
               blob_id: blobId,
-            };
+            });
           }
         } catch (e) {
           appendRecord({
@@ -130,12 +173,12 @@ export function registerExportTools(server: McpServer): void {
             args: rpc.args,
             error: String(e),
           });
-          rpcSummary = {
+          rpcSummary = buildRpcSummary(response_detail, {
             status: "error",
             script_id: rpc.script_id,
             method: rpc.method,
             error: String(e),
-          };
+          });
         }
       }
 
@@ -211,29 +254,36 @@ export function registerExportTools(server: McpServer): void {
         ? (hasMessageData ? "partial_success" : "error")
         : "success";
 
+      const response: Record<string, unknown> = {
+        status,
+        session_id,
+        format,
+        response_detail,
+        output_path: resolved.outputPath,
+        generated_default_path: resolved.generatedDefault,
+        records_written: recordsWritten,
+        bytes_written: bytesWritten,
+        messages_summary: {
+          in_memory_exported: inMemoryExported,
+          archived_exported: archivedExported,
+          messages_cleared: messagesCleared,
+          clear_mode_applied: include_messages ? clear_mode : "none",
+        },
+      };
+      if (rpcSummary) {
+        response.rpc_summary = rpcSummary;
+      }
+      if (response_detail === "compact") {
+        response.next_steps = [
+          `Read bundle: ${resolved.outputPath}`,
+          "Use read_session_message_blob when bundle records include blob ids.",
+        ];
+      }
+
       return {
         content: [{
           type: "text",
-          text: truncateResult({
-            status,
-            session_id,
-            format,
-            output_path: resolved.outputPath,
-            generated_default_path: resolved.generatedDefault,
-            records_written: recordsWritten,
-            bytes_written: bytesWritten,
-            rpc_summary: rpcSummary,
-            messages_summary: {
-              in_memory_exported: inMemoryExported,
-              archived_exported: archivedExported,
-              messages_cleared: messagesCleared,
-              clear_mode_applied: include_messages ? clear_mode : "none",
-            },
-            next_steps: [
-              `Read bundle: ${resolved.outputPath}`,
-              "Use read_session_message_blob when bundle records include blob ids.",
-            ],
-          }, 2),
+          text: truncateResult(response, 2),
         }],
       };
     },

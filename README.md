@@ -1,6 +1,6 @@
 # frida-mcp-ts
 
-TypeScript MCP server for Frida 17 dynamic instrumentation. Provides 40 tools and 15 resources for attaching to processes, executing scripts, hooking native and Java methods, bypassing SSL pinning, reading/writing memory, inspecting Java heaps, exporting large captures to disk, and searching Frida 17 API documentation — all through the Model Context Protocol.
+TypeScript MCP server for Frida 17 dynamic instrumentation. Provides 41 tools and 15 resources for attaching to processes, executing scripts, hooking native and Java methods, bypassing SSL pinning, reading/writing memory, inspecting Java heaps, exporting large captures to disk, and searching Frida 17 API documentation — all through the Model Context Protocol.
 
 ## Quick Start
 
@@ -95,6 +95,7 @@ Simple rule:
 - You usually call `load_script` once.
 - You can call `call_rpc_export` many times after that.
 - When finished, call `unload_script`.
+- Use `export_capture_bundle` instead when the result size is unknown or you want a host-side file for later analysis.
 
 Minimal flow:
 
@@ -109,7 +110,9 @@ Minimal flow:
 
 | Tool | Description | Key Params |
 |------|-------------|------------|
-| `export_capture_bundle` | Export RPC output and captured messages to a disk JSONL bundle (token-safe summary response) | `session_id`, `rpc?`, `include_messages?`, `include_archived_messages?`, `clear_mode?`, `output_path?`, `format?` |
+| `export_capture_bundle` | Export RPC output and captured messages to a disk JSONL bundle (token-safe summary response) | `session_id`, `rpc?`, `include_messages?`, `include_archived_messages?`, `clear_mode?`, `output_path?`, `format?`, `response_detail?` |
+
+`export_capture_bundle` is the preferred path for large or unbounded output. By default it returns a slim `path_only` response and writes the full capture to disk on the host machine.
 
 ### Memory Tools (6)
 
@@ -140,13 +143,14 @@ Minimal flow:
 | `hook_function` | Install persistent `Interceptor.attach` hook | `session_id`, `address`, `log_args?`, `log_retval?`, `num_args?` |
 | `get_backtrace` | One-shot backtrace capture (self-detaches) | `session_id`, `address`, `style?` |
 
-### Android Tools (5)
+### Android Tools (6)
 
 | Tool | Description | Key Params |
 |------|-------------|------------|
 | `android_ssl_pinning_disable` | Bypass SSL pinning (TrustManager, SSLContext, OkHttp, TrustManagerImpl) | `session_id`, `script_id?` |
 | `android_get_current_activity` | Get foreground activity via ActivityThread reflection | `session_id` |
 | `list_apps` | List installed applications (identifier, name, PID) | `device_id?` |
+| `android_check_frida_server` | Check Android frida-server health (running instances, version mismatch warnings) | `device_id?`, `adb_serial?` |
 | `file_ls` | List directory contents on target device (Java File API) | `session_id`, `path` |
 | `file_read` | Read a text file from target device | `session_id`, `path`, `max_size?` |
 
@@ -241,8 +245,9 @@ src/
      session_id,
      rpc={script_id, method:"getSignings"},
      include_messages=true,
-     clear_mode="returned"
-   ) → output_path + compact summaries
+     clear_mode="returned",
+     response_detail="path_only"
+   ) → output_path + slim summaries
 ```
 
 ### Hook a Java method

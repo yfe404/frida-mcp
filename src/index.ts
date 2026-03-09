@@ -1,7 +1,7 @@
 /**
  * Frida MCP Server (TypeScript) — entry point.
  *
- * Creates an McpServer with 40 tools and ~18 resources, connects via stdio.
+ * Creates an McpServer with 41 tools and ~18 resources, connects via stdio.
  * Tools are organized into 10 modules:
  *   device, process, session, script-mgmt, memory, java, native-hooks, docs, android, export
  */

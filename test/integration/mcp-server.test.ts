@@ -54,9 +54,9 @@ describe("MCP Server Integration", () => {
   });
 
   describe("tools/list", () => {
-    it("returns all 40 tools", async () => {
+    it("returns all 41 tools", async () => {
       const result = await client.listTools();
-      assert.equal(result.tools.length, 40);
+      assert.equal(result.tools.length, 41);
     });
 
     it("each tool has description and inputSchema", async () => {
@@ -85,6 +85,7 @@ describe("MCP Server Integration", () => {
       assert.ok(names.includes("android_ssl_pinning_disable"));
       assert.ok(names.includes("android_get_current_activity"));
       assert.ok(names.includes("list_apps"));
+      assert.ok(names.includes("android_check_frida_server"));
       assert.ok(names.includes("file_ls"));
       assert.ok(names.includes("file_read"));
       assert.ok(names.includes("export_capture_bundle"));
@@ -204,7 +205,7 @@ describe("MCP Server Integration", () => {
       });
       // Subsequent call should still work
       const result = await client.listTools();
-      assert.equal(result.tools.length, 40);
+      assert.equal(result.tools.length, 41);
     });
   });
 

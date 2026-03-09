@@ -5,12 +5,13 @@
  * Run: npx tsx scripts/fetch-docs.ts
  */
 
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUTPUT = join(__dirname, "..", "src", "docs", "frida-api.json");
+const FRIDA_PKG = join(__dirname, "..", "node_modules", "frida", "package.json");
 
 const DOCS_URL =
   "https://raw.githubusercontent.com/frida/frida-website/main/_i18n/en/_docs/javascript-api.md";
@@ -72,6 +73,15 @@ function inferCategory(title: string, content: string): string {
   return "Other";
 }
 
+function getInstalledFridaVersion(): string {
+  try {
+    const pkg = JSON.parse(readFileSync(FRIDA_PKG, "utf8"));
+    return typeof pkg.version === "string" ? pkg.version : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
 async function main() {
   console.log(`Fetching Frida JS API docs from GitHub...`);
   const resp = await fetch(DOCS_URL);
@@ -115,7 +125,7 @@ async function main() {
   sections.push(createMigrationSection());
 
   const data = {
-    version: "17.6.2",
+    version: getInstalledFridaVersion(),
     sections,
   };
 
@@ -195,7 +205,7 @@ Use a different name like \`dumpHex()\` if you need a custom implementation.
 
 function writeFallback() {
   const data = {
-    version: "17.6.2",
+    version: getInstalledFridaVersion(),
     sections: [createMigrationSection()],
   };
   writeFileSync(OUTPUT, JSON.stringify(data, null, 2));
