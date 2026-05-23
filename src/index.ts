@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 /**
  * Frida MCP Server (TypeScript) — entry point.
  *

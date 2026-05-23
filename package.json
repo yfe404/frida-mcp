@@ -1,11 +1,21 @@
 {
-  "name": "frida-mcp-ts",
+  "name": "frida-mcp",
   "version": "1.0.0",
   "description": "TypeScript MCP server for Frida 17 dynamic instrumentation",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "main": "dist/index.js",
+  "bin": {
+    "frida-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc && cp src/docs/frida-api.json dist/docs/frida-api.json",
+    "prepublishOnly": "npm run build",
     "start": "node dist/index.js",
     "dev": "tsc --watch",
     "fetch-docs": "tsx scripts/fetch-docs.ts",

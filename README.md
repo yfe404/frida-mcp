@@ -1,33 +1,57 @@
-# frida-mcp-ts
+# frida-mcp
 
 TypeScript MCP server for Frida 17 dynamic instrumentation. Provides 41 tools and 15 resources for attaching to processes, executing scripts, hooking native and Java methods, bypassing SSL pinning, reading/writing memory, inspecting Java heaps, exporting large captures to disk, and searching Frida 17 API documentation — all through the Model Context Protocol.
 
-## Quick Start
+## Setup
+
+### Quick install (Claude Code)
 
 ```bash
-# Install dependencies
+claude mcp add frida-mcp -- npx -y frida-mcp@latest
+```
+
+Installs frida-mcp as an MCP server over stdio. Auto-updates on every Claude Code restart.
+
+**Scopes:**
+
+```bash
+# Per-user (available in all projects)
+claude mcp add --scope user frida-mcp -- npx -y frida-mcp@latest
+
+# Per-project (shared via .mcp.json, commit to repo)
+claude mcp add --scope project frida-mcp -- npx -y frida-mcp@latest
+```
+
+### Manual `.mcp.json` config
+
+```json
+{
+  "mcpServers": {
+    "frida": {
+      "command": "npx",
+      "args": ["-y", "frida-mcp@latest"]
+    }
+  }
+}
+```
+
+### From source (development)
+
+```bash
 npm install
-
-# Build the docs index (optional but recommended)
-npm run fetch-docs
-
-# Build
+npm run fetch-docs   # build docs index (optional but recommended)
 npm run build
-
-# Run
 npm start
 ```
 
-### Configure for Claude Code
-
-Add to your `.mcp.json`:
+Then point `.mcp.json` at the local build:
 
 ```json
 {
   "mcpServers": {
     "frida": {
       "command": "node",
-      "args": ["/path/to/frida-mcp-ts/dist/index.js"]
+      "args": ["/path/to/frida-mcp/dist/index.js"]
     }
   }
 }
