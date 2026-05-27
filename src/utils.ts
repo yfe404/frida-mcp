@@ -39,9 +39,26 @@ export function resolveAddressJS(address: string): string {
 
 /**
  * Wrap user JS code in an IIFE that captures the result and sends it back.
- * console.log calls are intercepted and included in the result.
+ *
+ * The wrapper:
+ *   - Intercepts `console.log` so the host receives any traces alongside the result.
+ *   - Awaits a Promise return value before emitting the receipt — necessary
+ *     because frida-java-bridge 7.x APIs like Java.enumerateLoadedClasses are
+ *     object-callback based and the natural pattern in injected JS is to
+ *     return a Promise that resolves in onComplete.
+ *   - Reports thrown / rejected errors with stack on the same channel.
+ *
+ * Two public entry points reflect the two valid code shapes:
+ *   - `wrapForExecution(code)`     — statement-form. The caller's `code` may
+ *                                    use `var x = …; return x;`. This is the
+ *                                    public contract for `execute_in_session`.
+ *   - `wrapExpressionForExecution(expr)` — expression-form. The wrapper
+ *                                    propagates the expression value. Used by
+ *                                    internal builders that emit IIFEs.
+ *
+ * Both share the same outer wrapper; only the "inner body" differs.
  */
-export function wrapForExecution(code: string): string {
+function makeExecutionWrapper(innerBody: string): string {
   return `(function() {
   var __logs = [];
   var __origLog = console.log;
@@ -53,21 +70,59 @@ export function wrapForExecution(code: string): string {
     __logs.push(msg);
     __origLog.apply(console, arguments);
   };
-  var __result;
-  var __error;
-  try {
-    __result = (function() { ${code} })();
-  } catch(e) {
-    __error = { message: e.toString(), stack: e.stack };
+  function __sendReceipt(payload) {
+    console.log = __origLog;
+    send({
+      type: "execution_receipt",
+      result: payload.result,
+      error: payload.error,
+      logs: __logs
+    });
   }
-  console.log = __origLog;
-  send({
-    type: "execution_receipt",
-    result: __error ? undefined : (__result !== undefined ? JSON.stringify(__result) : "undefined"),
-    error: __error,
-    logs: __logs
-  });
+  function __serialize(v) {
+    return v !== undefined ? JSON.stringify(v) : "undefined";
+  }
+  try {
+    var __result = (function() { ${innerBody} })();
+    if (__result && typeof __result.then === "function") {
+      __result.then(function(v) {
+        __sendReceipt({ result: __serialize(v) });
+      }, function(e) {
+        __sendReceipt({ error: { message: e && e.toString ? e.toString() : String(e), stack: e && e.stack } });
+      });
+    } else {
+      __sendReceipt({ result: __serialize(__result) });
+    }
+  } catch(e) {
+    __sendReceipt({ error: { message: e.toString(), stack: e.stack } });
+  }
 })();`;
+}
+
+/**
+ * Statement-form wrapper. The caller is expected to provide one or more JS
+ * statements; surface a value by ending with `return X;`. An empty body
+ * resolves to `undefined`.
+ */
+export function wrapForExecution(code: string): string {
+  const trimmed = code.trim();
+  const innerBody = trimmed.length === 0 ? "return undefined;" : code;
+  return makeExecutionWrapper(innerBody);
+}
+
+/**
+ * Expression-form wrapper. The caller provides a single JS expression — most
+ * often an IIFE like `(function(){...})()`. The expression's value
+ * (including any returned Promise) is propagated to the receipt. Trailing
+ * semicolons are stripped so `(X)();` survives the `return (…)` interpolation.
+ */
+export function wrapExpressionForExecution(expr: string): string {
+  const trimmed = expr.trim();
+  if (trimmed.length === 0) {
+    return makeExecutionWrapper("return undefined;");
+  }
+  const exprBody = trimmed.replace(/;\s*$/, "");
+  return makeExecutionWrapper(`return (${exprBody});`);
 }
 
 /**
@@ -127,6 +182,32 @@ export async function createV8Script(session: Session, source: string): Promise<
 const javaBridgeEntrypoint = fileURLToPath(
   new URL("../node_modules/frida-java-bridge/index.js", import.meta.url),
 );
+const javaBridgePackageJson = fileURLToPath(
+  new URL("../node_modules/frida-java-bridge/package.json", import.meta.url),
+);
+
+/**
+ * Resolve the installed frida-java-bridge version once at module-load and
+ * prefix it onto bundle cache keys. Without this, a `npm install` that bumps
+ * the bridge would silently serve a stale compiled bundle from the in-memory
+ * cache for the lifetime of the MCP server process.
+ */
+function readJavaBridgeVersion(): string {
+  try {
+    // Use sync `readFileSync` via the already-imported `readFileSync` helper —
+    // we're at module init, an extra sync read is fine and avoids racing the
+    // first compile call.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { readFileSync } = require("node:fs") as typeof import("node:fs");
+    const text = readFileSync(javaBridgePackageJson, "utf8");
+    const parsed = JSON.parse(text) as { version?: unknown };
+    return typeof parsed.version === "string" ? parsed.version : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+const javaBridgeVersion = readJavaBridgeVersion();
+
 const compiler = new frida.Compiler();
 const javaBundleCache = new Map<string, Promise<string>>();
 const javaSymbolPattern = /(^|[^\w$])Java([^\w$]|$)/;
@@ -153,7 +234,12 @@ async function ensureJavaBridgeInstalled(): Promise<void> {
  * it as global Java, compatible with Frida 17 raw createScript workflows.
  */
 async function compileJavaBridgeBundle(source: string): Promise<string> {
-  const hash = createHash("sha256").update(source).digest("hex");
+  // Cache key includes the bridge version so a dep bump cannot serve a stale
+  // bundle. Same `source` against bridge 7.0.12 vs 7.0.13 must compile twice.
+  const hash = createHash("sha256")
+    .update(`v=${javaBridgeVersion}\n`)
+    .update(source)
+    .digest("hex");
   const cached = javaBundleCache.get(hash);
   if (cached) {
     return cached;
@@ -198,35 +284,64 @@ export async function createJavaBridgeScript(session: Session, source: string): 
 }
 
 /**
- * Execute JS in a Frida session, collect result via Promise (not sleep),
- * then unload the script. Timeout defaults to 5s.
+ * Execute statement-style JS in a Frida session, collect result via Promise
+ * (not sleep), then unload the script. Timeout defaults to 5s.
+ *
+ * "Statement-style" means the caller's `code` is a sequence of statements
+ * surfaced via `return X;` — the public `execute_in_session` contract.
+ * For builder JS (which is naturally an IIFE expression), use
+ * `executeTransientExpression` / `executeTransientExpressionJava` instead.
  */
 export async function executeTransientScript(
   session: Session,
   code: string,
   timeoutMs = 5000,
 ): Promise<TransientResult> {
-  return executeTransientScriptInternal(session, code, timeoutMs, false);
+  return executeTransientScriptInternal(session, wrapForExecution(code), timeoutMs, false);
 }
 
 /**
- * Execute JS in a Frida session with the Java bridge preloaded.
+ * Statement-style execution with the Java bridge preloaded.
  */
 export async function executeTransientJavaScript(
   session: Session,
   code: string,
   timeoutMs = 5000,
 ): Promise<TransientResult> {
-  return executeTransientScriptInternal(session, code, timeoutMs, true);
+  return executeTransientScriptInternal(session, wrapForExecution(code), timeoutMs, true);
+}
+
+/**
+ * Expression-style execution. Caller provides a single JS expression — most
+ * builders emit `(function () { … })()`. The expression's value (a value or
+ * a Promise) is returned via the receipt.
+ */
+export async function executeTransientExpression(
+  session: Session,
+  expr: string,
+  timeoutMs = 5000,
+): Promise<TransientResult> {
+  return executeTransientScriptInternal(session, wrapExpressionForExecution(expr), timeoutMs, false);
+}
+
+/**
+ * Expression-style execution with the Java bridge preloaded — the form most
+ * `*JS` builders in `src/injected/` should target.
+ */
+export async function executeTransientExpressionJava(
+  session: Session,
+  expr: string,
+  timeoutMs = 5000,
+): Promise<TransientResult> {
+  return executeTransientScriptInternal(session, wrapExpressionForExecution(expr), timeoutMs, true);
 }
 
 async function executeTransientScriptInternal(
   session: Session,
-  code: string,
+  wrapped: string,
   timeoutMs: number,
   useJavaBridge: boolean,
 ): Promise<TransientResult> {
-  const wrapped = wrapForExecution(code);
   const script: Script = useJavaBridge
     ? await createJavaBridgeScript(session, wrapped)
     : await createV8Script(session, wrapped);

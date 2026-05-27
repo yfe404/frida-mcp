@@ -351,6 +351,137 @@ export function registerSessionTools(server: McpServer): void {
   );
 
   server.tool(
+    "subscribe_messages",
+    "Long-poll for new session messages. Resolves as soon as `min_count` matching messages exist " +
+    "in the queue, or after `timeout_ms` if not. Optional `where` predicate is JS that takes a " +
+    "stored message and returns boolean. Cuts the poll-and-pull noise to one round-trip per " +
+    "actionable batch.",
+    {
+      session_id: z.string().describe("Session ID"),
+      where: z.string().optional().describe("JS predicate body referencing `message`. Default: 'true'."),
+      min_count: z.number().int().positive().optional().default(1).describe("Minimum matching messages to wait for."),
+      timeout_ms: z.number().int().positive().optional().default(15000).describe("Max wait time in ms."),
+      since_seq: z.number().int().nonnegative().optional().describe("Only consider messages with seq >= this value."),
+      consume: z.boolean().optional().default(false).describe("If true, remove returned messages from the queue."),
+    },
+    async ({ session_id, where, min_count, timeout_ms, since_seq, consume }) => {
+      sessionManager.requireSession(session_id);
+
+      if (where && where.includes("`")) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ status: "error", error: "where must not contain backticks" }) }],
+        };
+      }
+
+      // Compile predicate once.
+      const predicateExpr = (where && where.trim().length > 0) ? where : "true";
+      let predicate: (m: unknown) => boolean;
+      try {
+        predicate = new Function("message", `try { return (${predicateExpr}); } catch (e) { return false; }`) as (m: unknown) => boolean;
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ status: "error", error: `Invalid 'where' predicate: ${String(e)}` }) }],
+        };
+      }
+
+      const seqFloor = since_seq ?? 0;
+
+      function matches(): typeof sessionManager extends never ? never : ReturnType<typeof sessionManager.peekMessages> {
+        const all = sessionManager.peekMessages(session_id);
+        return all.filter((m) => m.seq >= seqFloor && predicate(m)) as never;
+      }
+
+      // Fast path: already enough matches.
+      let collected = matches();
+      if (collected.length >= min_count) {
+        if (consume) {
+          // Remove matched seqs from the live queue. We do this by computing
+          // their indices and splicing in reverse order.
+          const all = sessionManager.peekMessages(session_id);
+          const matchedSet = new Set(collected.map((m) => m.seq));
+          const indices: number[] = [];
+          all.forEach((m, i) => { if (matchedSet.has(m.seq)) indices.push(i); });
+          indices.reverse().forEach((i) => sessionManager.clearMessageRange(session_id, i, 1));
+        }
+        return {
+          content: [{
+            type: "text",
+            text: truncateResult({
+              status: "success",
+              session_id,
+              waited_ms: 0,
+              matched_count: collected.length,
+              messages: collected,
+            }),
+          }],
+        };
+      }
+
+      // Slow path: wait for emitter or timeout.
+      // try/finally each branch so a throwing predicate cannot leak the
+      // listener — that would slowly trip Node's MaxListenersExceededWarning
+      // over a long-running MCP server.
+      const start = Date.now();
+      const evtName = `message:${session_id}`;
+      const result = await new Promise<{ matched: typeof collected; waited: number; timedOut: boolean }>((resolve) => {
+        let settled = false;
+        let timer: NodeJS.Timeout | null = null;
+        function cleanup() {
+          if (timer) { clearTimeout(timer); timer = null; }
+          sessionManager.events.off(evtName, handler);
+        }
+        function settle(value: { matched: typeof collected; waited: number; timedOut: boolean }) {
+          if (settled) return;
+          settled = true;
+          try { cleanup(); } finally { resolve(value); }
+        }
+        function handler() {
+          try {
+            const m = matches();
+            if (m.length >= min_count) {
+              settle({ matched: m, waited: Date.now() - start, timedOut: false });
+            }
+          } catch {
+            // Predicate threw on this specific message; drop and keep waiting.
+            // We deliberately swallow because the matches() filter already
+            // try/catches per-message — but defence in depth.
+          }
+        }
+        timer = setTimeout(() => {
+          try {
+            settle({ matched: matches(), waited: Date.now() - start, timedOut: true });
+          } catch {
+            settle({ matched: [] as typeof collected, waited: Date.now() - start, timedOut: true });
+          }
+        }, timeout_ms);
+        sessionManager.events.on(evtName, handler);
+      });
+
+      if (consume && result.matched.length > 0) {
+        const all = sessionManager.peekMessages(session_id);
+        const matchedSet = new Set(result.matched.map((m) => m.seq));
+        const indices: number[] = [];
+        all.forEach((m, i) => { if (matchedSet.has(m.seq)) indices.push(i); });
+        indices.reverse().forEach((i) => sessionManager.clearMessageRange(session_id, i, 1));
+      }
+
+      return {
+        content: [{
+          type: "text",
+          text: truncateResult({
+            status: result.timedOut ? "timeout" : "success",
+            session_id,
+            waited_ms: result.waited,
+            matched_count: result.matched.length,
+            min_count,
+            messages: result.matched,
+          }),
+        }],
+      };
+    },
+  );
+
+  server.tool(
     "get_archived_session_messages",
     "List archived session messages that were cleared or evicted from the in-memory queue.",
     {

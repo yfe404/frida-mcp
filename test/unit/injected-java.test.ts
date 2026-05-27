@@ -19,26 +19,42 @@ describe("listClassesJS", () => {
     new Function(code);
   });
 
-  it("uses Java.perform and enumerateLoadedClasses", () => {
+  it("uses Java.perform and enumerateLoadedClasses object-callback form", () => {
+    // Frida 17 / frida-java-bridge 7.x require the {onMatch, onComplete} form;
+    // the synchronous no-arg form was removed and throws "Cannot read
+    // properties of undefined (reading 'onMatch')" at runtime.
     const code = listClassesJS();
     assert.ok(code.includes("Java.perform"));
-    assert.ok(code.includes("Java.enumerateLoadedClasses"));
+    assert.ok(code.includes("Java.enumerateLoadedClasses({"));
+    assert.ok(code.includes("onMatch"));
+    assert.ok(code.includes("onComplete"));
   });
 
-  it("without filter does not include filter check", () => {
+  it("returns a Promise so wrapForExecution can await async completion", () => {
     const code = listClassesJS();
-    assert.ok(!code.includes("indexOf"));
+    assert.ok(code.includes("new Promise"));
+    assert.ok(code.includes("resolve("));
   });
 
-  it("with filter includes case-insensitive check", () => {
-    const code = listClassesJS("com.example");
-    assert.ok(code.includes("toLowerCase"));
+  it("embeds an empty filter literal when none supplied (runtime guard is a no-op)", () => {
+    const code = listClassesJS();
+    // Filter is evaluated at runtime against an empty string, so the guard
+    // short-circuits — no compile-time branch is required.
+    assert.ok(code.includes('var f = ""'));
+  });
+
+  it("with filter embeds the lowercased filter string", () => {
+    const code = listClassesJS("Com.Example");
     assert.ok(code.includes("com.example"));
+    assert.ok(code.includes("toLowerCase"));
   });
 
-  it("caps results at 500", () => {
+  it("caps results at 500 via push gate (Java.enumerateLoadedClasses ignores 'stop')", () => {
     const code = listClassesJS();
     assert.ok(code.includes("500"));
+    // Frida-java-bridge 7.x ignores onMatch's return value for
+    // enumerateLoadedClasses; we must not emit the dead sentinel.
+    assert.ok(!code.includes('return "stop"'), "listClassesJS should not return the unsupported \"stop\" sentinel");
   });
 });
 
@@ -117,6 +133,16 @@ describe("dumpClassJS", () => {
     assert.ok(code.includes("getDeclaredConstructors"));
     assert.ok(code.includes("getInterfaces"));
     assert.ok(code.includes("getSuperclass"));
+  });
+
+  it("returns a Promise resolved from inside Java.perform", () => {
+    // Without the Promise wrap the IIFE returned `result` synchronously before
+    // Java.perform's callback fired, producing undefined receipts in the
+    // Expedia engagement.
+    const code = dumpClassJS("com.example.MyClass");
+    assert.ok(code.includes("new Promise"));
+    assert.ok(code.includes("resolve({"));
+    assert.ok(code.includes("reject("));
   });
 
   it("injects className", () => {

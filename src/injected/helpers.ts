@@ -18,10 +18,18 @@ export function listModulesJS(): string {
 }
 
 export function findModuleJS(name: string): string {
+  // Frida 17 prefers \`Process.getModuleByName\` (which throws when missing)
+  // over the older \`findModuleByName\` (which is being phased out per the
+  // 17 migration notes). We wrap the throw to keep the "null if missing"
+  // contract callers expect.
   return `(function() {
-  var m = Process.findModuleByName(${JSON.stringify(name)});
-  if (!m) return null;
-  return { name: m.name, base: m.base.toString(), size: m.size, path: m.path };
+  try {
+    var m = Process.getModuleByName(${JSON.stringify(name)});
+    if (!m) return null;
+    return { name: m.name, base: m.base.toString(), size: m.size, path: m.path };
+  } catch (e) {
+    return null;
+  }
 })()`;
 }
 

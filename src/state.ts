@@ -4,6 +4,7 @@
  */
 
 import type frida from "frida";
+import { EventEmitter } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -91,6 +92,13 @@ export class SessionManager {
   private sessions = new Map<string, ManagedSession>();
   private readonly opts: SessionManagerOptions;
 
+  /**
+   * EventEmitter for cross-tool notifications. Emits `message:<sessionId>`
+   * with the newly stored message every time `pushMessage` lands. Consumed by
+   * `subscribe_messages` to long-poll without busy-loops.
+   */
+  readonly events = new EventEmitter();
+
   constructor(opts?: Partial<SessionManagerOptions>) {
     const blobBaseDir = opts?.blobBaseDir
       ?? process.env.FRIDA_MCP_BLOB_DIR
@@ -137,8 +145,17 @@ export class SessionManager {
     };
     this.sessions.set(id, managed);
 
-    // Auto-cleanup on detach
+    // Auto-cleanup on detach. Best-effort unload every persistent script so
+    // we don't leave dangling agent state in the (now-dead) process. Errors
+    // are swallowed because Frida may have already torn the script down.
     fridaSession.detached.connect(() => {
+      const session = this.sessions.get(id);
+      if (session) {
+        for (const managedScript of session.scripts.values()) {
+          managedScript.fridaScript.unload().catch(() => undefined);
+        }
+        session.scripts.clear();
+      }
       this.sessions.delete(id);
     });
 
@@ -212,6 +229,10 @@ export class SessionManager {
         const evicted = session.messages.splice(0, evictCount);
         this.archiveMessages(session, evicted);
       }
+
+      // Notify long-pollers. We emit AFTER storage so subscribers see the
+      // canonical StoredScriptMessage shape, not the raw runtime payload.
+      this.events.emit(`message:${sessionId}`, stored);
     }
   }
 

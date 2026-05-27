@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { resolveAddressJS, wrapForExecution, truncateResult } from "../../src/utils.js";
+import { resolveAddressJS, wrapForExecution, wrapExpressionForExecution, truncateResult } from "../../src/utils.js";
 
 describe("resolveAddressJS", () => {
   it("handles absolute hex address", () => {
@@ -62,6 +62,42 @@ describe("wrapForExecution", () => {
   it("handles empty input", () => {
     const code = wrapForExecution("");
     new Function(code); // should not throw
+    assert.ok(code.includes("execution_receipt"));
+  });
+});
+
+describe("wrapExpressionForExecution", () => {
+  it("returns valid JS for a simple expression", () => {
+    const code = wrapExpressionForExecution("42");
+    new Function(code);
+    assert.ok(code.includes("return (42)"));
+  });
+
+  it("returns valid JS for an IIFE expression", () => {
+    const code = wrapExpressionForExecution("(function() { return 7; })()");
+    new Function(code);
+    // The wrapper propagates the inner IIFE's value via the outer return.
+    assert.ok(code.includes("return ((function() { return 7; })())"));
+  });
+
+  it("strips a trailing semicolon so `(…)();` parses correctly", () => {
+    // Without the strip, the wrapper would emit `return (X;);` which is a
+    // syntax error. Regression for the bug uncovered while shipping
+    // process_inventory.
+    const code = wrapExpressionForExecution("(function(){return 1;})();");
+    new Function(code);
+    assert.ok(!code.includes("return ((function(){return 1;})();)"));
+  });
+
+  it("handles empty input", () => {
+    const code = wrapExpressionForExecution("");
+    new Function(code);
+    assert.ok(code.includes("return undefined"));
+  });
+
+  it("contains the same Promise-await machinery as wrapForExecution", () => {
+    const code = wrapExpressionForExecution("Promise.resolve(1)");
+    assert.ok(code.includes("__result.then"));
     assert.ok(code.includes("execution_receipt"));
   });
 });

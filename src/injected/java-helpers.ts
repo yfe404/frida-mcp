@@ -6,173 +6,207 @@
  */
 
 export function listClassesJS(filter?: string): string {
-  const filterCheck = filter
-    ? `if (name.toLowerCase().indexOf(${JSON.stringify(filter.toLowerCase())}) === -1) continue;`
-    : "";
-
+  // Frida 17 / frida-java-bridge 7.x removed the synchronous no-arg form of
+  // Java.enumerateLoadedClasses(); only the object-callback form is supported.
+  // Result is collected in onMatch and the IIFE returns a Promise resolved in
+  // onComplete (awaited by wrapForExecution).
+  const filterLiteral = JSON.stringify((filter ?? "").toLowerCase());
   return `(function() {
-  var result = [];
-  Java.perform(function() {
-    var classes = Java.enumerateLoadedClasses();
-    for (var i = 0; i < classes.length; i++) {
-      var name = classes[i];
-      ${filterCheck}
-      result.push(name);
-      if (result.length >= 500) break;
-    }
+  return new Promise(function(resolve, reject) {
+    Java.perform(function() {
+      try {
+        var out = [];
+        var f = ${filterLiteral};
+        Java.enumerateLoadedClasses({
+          onMatch: function(name) {
+            // \`Java.enumerateLoadedClasses\` ignores onMatch's return value
+            // (frida-java-bridge/index.js:189-206). We can't short-circuit
+            // enumeration; we can only stop pushing once we hit the cap.
+            if (out.length >= 500) return;
+            if (f && name.toLowerCase().indexOf(f) === -1) return;
+            out.push(name);
+          },
+          onComplete: function() { resolve(out); }
+        });
+      } catch(e) {
+        reject(e);
+      }
+    });
   });
-  return result;
 })()`;
 }
 
 export function findInstancesJS(className: string, maxInstances: number): string {
   return `(function() {
-  var result = [];
-  Java.perform(function() {
-    Java.choose(${JSON.stringify(className)}, {
-      onMatch: function(instance) {
-        var info = { className: ${JSON.stringify(className)}, fields: {} };
-        try {
-          var cls = instance.getClass();
-          var fields = cls.getDeclaredFields();
-          for (var i = 0; i < fields.length; i++) {
-            var f = fields[i];
-            var fname = "" + f.getName();
-            var ftype = "" + f.getType().getName();
-            f.setAccessible(true);
-            var val;
+  return new Promise(function(resolve, reject) {
+    Java.perform(function() {
+      try {
+        var result = [];
+        Java.choose(${JSON.stringify(className)}, {
+          onMatch: function(instance) {
+            var info = { className: ${JSON.stringify(className)}, fields: {} };
             try {
-              if (ftype === "long") {
-                val = f.getLong(instance);
-              } else if (ftype === "int") {
-                val = f.getInt(instance);
-              } else if (ftype === "boolean") {
-                val = f.getBoolean(instance);
-              } else if (ftype === "double") {
-                val = f.getDouble(instance);
-              } else if (ftype === "float") {
-                val = f.getFloat(instance);
-              } else {
-                var obj = f.get(instance);
-                val = obj !== null ? "" + obj : null;
+              var cls = instance.getClass();
+              var fields = cls.getDeclaredFields();
+              for (var i = 0; i < fields.length; i++) {
+                var f = fields[i];
+                var fname = "" + f.getName();
+                var ftype = "" + f.getType().getName();
+                f.setAccessible(true);
+                var val;
+                try {
+                  if (ftype === "long") {
+                    val = f.getLong(instance);
+                  } else if (ftype === "int") {
+                    val = f.getInt(instance);
+                  } else if (ftype === "boolean") {
+                    val = f.getBoolean(instance);
+                  } else if (ftype === "double") {
+                    val = f.getDouble(instance);
+                  } else if (ftype === "float") {
+                    val = f.getFloat(instance);
+                  } else {
+                    var obj = f.get(instance);
+                    val = obj !== null ? "" + obj : null;
+                  }
+                } catch(e) {
+                  val = "<error: " + e + ">";
+                }
+                info.fields[fname] = { type: ftype, value: val };
               }
             } catch(e) {
-              val = "<error: " + e + ">";
+              info.reflectionError = "" + e;
             }
-            info.fields[fname] = { type: ftype, value: val };
-          }
-        } catch(e) {
-          info.reflectionError = "" + e;
-        }
-        result.push(info);
-        if (result.length >= ${maxInstances}) return "stop";
-      },
-      onComplete: function() {}
+            result.push(info);
+            if (result.length >= ${maxInstances}) return "stop";
+          },
+          onComplete: function() { resolve(result); }
+        });
+      } catch(e) {
+        reject(e);
+      }
     });
   });
-  return result;
 })()`;
 }
 
 export function listMethodsJS(className: string): string {
   return `(function() {
-  var result = [];
-  Java.perform(function() {
-    var cls = Java.use(${JSON.stringify(className)});
-    var methods = cls.class.getDeclaredMethods();
-    for (var i = 0; i < methods.length; i++) {
-      var m = methods[i];
-      var params = m.getParameterTypes();
-      var paramTypes = [];
-      for (var j = 0; j < params.length; j++) {
-        paramTypes.push("" + params[j].getName());
+  return new Promise(function(resolve, reject) {
+    Java.perform(function() {
+      try {
+        var result = [];
+        var cls = Java.use(${JSON.stringify(className)});
+        var methods = cls.class.getDeclaredMethods();
+        for (var i = 0; i < methods.length; i++) {
+          var m = methods[i];
+          var params = m.getParameterTypes();
+          var paramTypes = [];
+          for (var j = 0; j < params.length; j++) {
+            paramTypes.push("" + params[j].getName());
+          }
+          result.push({
+            name: "" + m.getName(),
+            returnType: "" + m.getReturnType().getName(),
+            parameterTypes: paramTypes,
+            modifiers: m.getModifiers()
+          });
+        }
+        resolve(result);
+      } catch(e) {
+        reject(e);
       }
-      result.push({
-        name: "" + m.getName(),
-        returnType: "" + m.getReturnType().getName(),
-        parameterTypes: paramTypes,
-        modifiers: m.getModifiers()
-      });
-    }
+    });
   });
-  return result;
 })()`;
 }
 
 export function dumpClassJS(className: string): string {
+  // Java.perform may schedule its callback on the VM thread asynchronously,
+  // so we wrap in a Promise resolved from inside the callback. wrapForExecution
+  // awaits the Promise before sending the receipt.
   return `(function() {
-  var result = null;
-  Java.perform(function() {
-    var cls = Java.use(${JSON.stringify(className)});
-    var javaClass = cls.class;
-    var methodList = [];
-    var methods = javaClass.getDeclaredMethods();
-    for (var i = 0; i < methods.length; i++) {
-      var m = methods[i];
-      var params = m.getParameterTypes();
-      var paramTypes = [];
-      for (var j = 0; j < params.length; j++) {
-        paramTypes.push("" + params[j].getName());
+  return new Promise(function(resolve, reject) {
+    Java.perform(function() {
+      try {
+        var cls = Java.use(${JSON.stringify(className)});
+        var javaClass = cls.class;
+        var methodList = [];
+        var methods = javaClass.getDeclaredMethods();
+        for (var i = 0; i < methods.length; i++) {
+          var m = methods[i];
+          var params = m.getParameterTypes();
+          var paramTypes = [];
+          for (var j = 0; j < params.length; j++) {
+            paramTypes.push("" + params[j].getName());
+          }
+          methodList.push({
+            name: "" + m.getName(),
+            returnType: "" + m.getReturnType().getName(),
+            parameterTypes: paramTypes,
+            modifiers: m.getModifiers()
+          });
+        }
+        var fieldList = [];
+        var fields = javaClass.getDeclaredFields();
+        for (var i = 0; i < fields.length; i++) {
+          var f = fields[i];
+          fieldList.push({
+            name: "" + f.getName(),
+            type: "" + f.getType().getName(),
+            modifiers: f.getModifiers()
+          });
+        }
+        var ctorList = [];
+        var constructors = javaClass.getDeclaredConstructors();
+        for (var i = 0; i < constructors.length; i++) {
+          var c = constructors[i];
+          var cParams = c.getParameterTypes();
+          var cParamTypes = [];
+          for (var j = 0; j < cParams.length; j++) {
+            cParamTypes.push("" + cParams[j].getName());
+          }
+          ctorList.push({
+            parameterTypes: cParamTypes,
+            modifiers: c.getModifiers()
+          });
+        }
+        var ifaceList = [];
+        var interfaces = javaClass.getInterfaces();
+        for (var i = 0; i < interfaces.length; i++) {
+          ifaceList.push("" + interfaces[i].getName());
+        }
+        var superClass = javaClass.getSuperclass();
+        resolve({
+          className: ${JSON.stringify(className)},
+          superClass: superClass ? "" + superClass.getName() : null,
+          interfaces: ifaceList,
+          methods: methodList,
+          fields: fieldList,
+          constructors: ctorList
+        });
+      } catch(e) {
+        reject(e);
       }
-      methodList.push({
-        name: "" + m.getName(),
-        returnType: "" + m.getReturnType().getName(),
-        parameterTypes: paramTypes,
-        modifiers: m.getModifiers()
-      });
-    }
-    var fieldList = [];
-    var fields = javaClass.getDeclaredFields();
-    for (var i = 0; i < fields.length; i++) {
-      var f = fields[i];
-      fieldList.push({
-        name: "" + f.getName(),
-        type: "" + f.getType().getName(),
-        modifiers: f.getModifiers()
-      });
-    }
-    var ctorList = [];
-    var constructors = javaClass.getDeclaredConstructors();
-    for (var i = 0; i < constructors.length; i++) {
-      var c = constructors[i];
-      var cParams = c.getParameterTypes();
-      var cParamTypes = [];
-      for (var j = 0; j < cParams.length; j++) {
-        cParamTypes.push("" + cParams[j].getName());
-      }
-      ctorList.push({
-        parameterTypes: cParamTypes,
-        modifiers: c.getModifiers()
-      });
-    }
-    var ifaceList = [];
-    var interfaces = javaClass.getInterfaces();
-    for (var i = 0; i < interfaces.length; i++) {
-      ifaceList.push("" + interfaces[i].getName());
-    }
-    var superClass = javaClass.getSuperclass();
-    result = {
-      className: ${JSON.stringify(className)},
-      superClass: superClass ? "" + superClass.getName() : null,
-      interfaces: ifaceList,
-      methods: methodList,
-      fields: fieldList,
-      constructors: ctorList
-    };
+    });
   });
-  return result;
 })()`;
 }
 
 export function runJavaJS(code: string): string {
   return `(function() {
-  var __javaResult;
-  Java.perform(function() {
-    __javaResult = (function() {
-      ${code}
-    })();
+  return new Promise(function(resolve, reject) {
+    Java.perform(function() {
+      try {
+        var __javaResult = (function() {
+          ${code}
+        })();
+        resolve(__javaResult);
+      } catch(e) {
+        reject(e);
+      }
+    });
   });
-  return __javaResult;
 })()`;
 }
 
@@ -216,7 +250,10 @@ export function hookJavaMethodJS(
         overload.implementation = function() {
           var msg = { hookId: ${JSON.stringify(hookId)}, event: "onEnter", className: ${JSON.stringify(className)}, method: ${JSON.stringify(methodName)}, tid: Process.getCurrentThreadId() };${argLog}${btLog}
           send(msg);
-          var retval = this[${JSON.stringify(methodName)}].apply(this, arguments);
+          // Closure-captured overload invocation dispatches to the original
+          // implementation. \`this[methodName].apply\` would re-enter the hook
+          // and recurse — see frida-java-bridge/index.d.ts Method interface.
+          var retval = overload.apply(this, arguments);
           var retMsg = { hookId: ${JSON.stringify(hookId)}, event: "onLeave", className: ${JSON.stringify(className)}, method: ${JSON.stringify(methodName)}, tid: Process.getCurrentThreadId() };
           ${retLog}
           send(retMsg);
@@ -301,80 +338,86 @@ export function sslPinningDisableJS(): string {
 
 export function getCurrentActivityJS(): string {
   return `(function() {
-  var result = null;
-  Java.perform(function() {
-    try {
-      var ActivityThread = Java.use("android.app.ActivityThread");
-      var at = ActivityThread.currentActivityThread();
-      var app = at.getApplication();
-      result = { packageName: "" + app.getPackageName() };
-      var activities = at.mActivities.value;
-      var it = activities.values().iterator();
-      while (it.hasNext()) {
-        var record = it.next();
-        if (!record.paused.value) {
-          result.className = "" + record.activity.value.getClass().getName();
-          try { result.title = "" + record.activity.value.getTitle(); } catch(e) {}
-          break;
+  return new Promise(function(resolve) {
+    Java.perform(function() {
+      var result = null;
+      try {
+        var ActivityThread = Java.use("android.app.ActivityThread");
+        var at = ActivityThread.currentActivityThread();
+        var app = at.getApplication();
+        result = { packageName: "" + app.getPackageName() };
+        var activities = at.mActivities.value;
+        var it = activities.values().iterator();
+        while (it.hasNext()) {
+          var record = it.next();
+          if (!record.paused.value) {
+            result.className = "" + record.activity.value.getClass().getName();
+            try { result.title = "" + record.activity.value.getTitle(); } catch(e) {}
+            break;
+          }
         }
+      } catch(e) {
+        result = { error: "" + e };
       }
-    } catch(e) {
-      result = { error: "" + e };
-    }
+      resolve(result);
+    });
   });
-  return result;
 })()`;
 }
 
 export function fileLsJS(path: string): string {
   return `(function() {
-  var result = [];
-  Java.perform(function() {
-    var File = Java.use("java.io.File");
-    var dir = File.$new(${JSON.stringify(path)});
-    if (!dir.exists()) { result = { error: "Path does not exist: " + ${JSON.stringify(path)} }; return; }
-    if (!dir.isDirectory()) { result = { error: "Not a directory: " + ${JSON.stringify(path)} }; return; }
-    var files = dir.listFiles();
-    if (files === null) { result = { error: "Cannot list directory (permission denied?)" }; return; }
-    for (var i = 0; i < files.length; i++) {
-      var f = files[i];
-      result.push({
-        name: "" + f.getName(),
-        path: "" + f.getAbsolutePath(),
-        isDirectory: f.isDirectory(),
-        size: f.length(),
-        lastModified: f.lastModified()
-      });
-    }
+  return new Promise(function(resolve) {
+    Java.perform(function() {
+      var result = [];
+      var File = Java.use("java.io.File");
+      var dir = File.$new(${JSON.stringify(path)});
+      if (!dir.exists()) { resolve({ error: "Path does not exist: " + ${JSON.stringify(path)} }); return; }
+      if (!dir.isDirectory()) { resolve({ error: "Not a directory: " + ${JSON.stringify(path)} }); return; }
+      var files = dir.listFiles();
+      if (files === null) { resolve({ error: "Cannot list directory (permission denied?)" }); return; }
+      for (var i = 0; i < files.length; i++) {
+        var f = files[i];
+        result.push({
+          name: "" + f.getName(),
+          path: "" + f.getAbsolutePath(),
+          isDirectory: f.isDirectory(),
+          size: f.length(),
+          lastModified: f.lastModified()
+        });
+      }
+      resolve(result);
+    });
   });
-  return result;
 })()`;
 }
 
 export function fileReadJS(path: string, maxSize: number): string {
   return `(function() {
-  var content = null;
-  Java.perform(function() {
-    try {
-      var File = Java.use("java.io.File");
-      var file = File.$new(${JSON.stringify(path)});
-      if (!file.exists()) { content = { error: "File not found: " + ${JSON.stringify(path)} }; return; }
-      if (file.isDirectory()) { content = { error: "Path is a directory" }; return; }
-      var fileSize = file.length();
-      if (fileSize > ${maxSize}) {
-        content = { error: "File too large (" + fileSize + " bytes, max ${maxSize})" };
-        return;
+  return new Promise(function(resolve) {
+    Java.perform(function() {
+      var content = null;
+      try {
+        var File = Java.use("java.io.File");
+        var file = File.$new(${JSON.stringify(path)});
+        if (!file.exists()) { resolve({ error: "File not found: " + ${JSON.stringify(path)} }); return; }
+        if (file.isDirectory()) { resolve({ error: "Path is a directory" }); return; }
+        var fileSize = file.length();
+        if (fileSize > ${maxSize}) {
+          resolve({ error: "File too large (" + fileSize + " bytes, max ${maxSize})" });
+          return;
+        }
+        var Scanner = Java.use("java.util.Scanner");
+        var scanner = Scanner.$new(file, "UTF-8");
+        scanner.useDelimiter("\\\\A");
+        var text = scanner.hasNext() ? "" + scanner.next() : "";
+        scanner.close();
+        content = { path: ${JSON.stringify(path)}, size: fileSize, content: text };
+      } catch(e) {
+        content = { error: "" + e };
       }
-      var Scanner = Java.use("java.util.Scanner");
-      var scanner = Scanner.$new(file, "UTF-8");
-      scanner.useDelimiter("\\\\A");
-      var text = scanner.hasNext() ? "" + scanner.next() : "";
-      scanner.close();
-      content = { path: ${JSON.stringify(path)}, size: fileSize, content: text };
-    } catch(e) {
-      content = { error: "" + e };
-    }
+      resolve(content);
+    });
   });
-  return content;
 })()`;
 }

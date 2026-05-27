@@ -32,10 +32,11 @@ describe("findModuleJS", () => {
     assert.ok(code.includes("libnative.so"));
   });
 
-  it("uses Process.findModuleByName (not deprecated Module.*)", () => {
+  it("uses Process.getModuleByName (Frida 17 form) with try/catch for missing modules", () => {
     const code = findModuleJS("test.so");
-    assert.ok(code.includes("Process.findModuleByName"));
-    assert.ok(!code.includes("Module.findModuleByName"));
+    assert.ok(code.includes("Process.getModuleByName"));
+    assert.ok(!code.includes("Process.findModuleByName"), "findModuleByName is being phased out");
+    assert.ok(code.includes("try"), "should wrap the throw so callers see null on missing");
   });
 });
 

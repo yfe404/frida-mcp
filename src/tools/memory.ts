@@ -6,7 +6,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { sessionManager } from "../state.js";
-import { executeTransientScript, resolveAddressJS, truncateResult } from "../utils.js";
+import { executeTransientExpression, resolveAddressJS, truncateResult } from "../utils.js";
 import { listModulesJS, findModuleJS, listExportsJS, readMemoryJS, writeMemoryJS, searchMemoryJS } from "../injected/helpers.js";
 
 export function registerMemoryTools(server: McpServer): void {
@@ -18,7 +18,7 @@ export function registerMemoryTools(server: McpServer): void {
     },
     async ({ session_id }) => {
       const session = sessionManager.requireSession(session_id);
-      const result = await executeTransientScript(session.fridaSession, listModulesJS());
+      const result = await executeTransientExpression(session.fridaSession, listModulesJS());
       return { content: [{ type: "text", text: truncateResult(result, 2) }] };
     },
   );
@@ -32,7 +32,7 @@ export function registerMemoryTools(server: McpServer): void {
     },
     async ({ session_id, name }) => {
       const session = sessionManager.requireSession(session_id);
-      const result = await executeTransientScript(session.fridaSession, findModuleJS(name));
+      const result = await executeTransientExpression(session.fridaSession, findModuleJS(name));
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },
   );
@@ -46,7 +46,7 @@ export function registerMemoryTools(server: McpServer): void {
     },
     async ({ session_id, module_name }) => {
       const session = sessionManager.requireSession(session_id);
-      const result = await executeTransientScript(session.fridaSession, listExportsJS(module_name));
+      const result = await executeTransientExpression(session.fridaSession, listExportsJS(module_name));
       return { content: [{ type: "text", text: truncateResult(result, 2) }] };
     },
   );
@@ -63,7 +63,7 @@ export function registerMemoryTools(server: McpServer): void {
       const session = sessionManager.requireSession(session_id);
       const clampedSize = Math.min(size, 4096);
       const addrExpr = resolveAddressJS(address);
-      const result = await executeTransientScript(
+      const result = await executeTransientExpression(
         session.fridaSession,
         readMemoryJS(addrExpr, clampedSize),
       );
@@ -82,7 +82,7 @@ export function registerMemoryTools(server: McpServer): void {
     async ({ session_id, address, hex_bytes }) => {
       const session = sessionManager.requireSession(session_id);
       const addrExpr = resolveAddressJS(address);
-      const result = await executeTransientScript(
+      const result = await executeTransientExpression(
         session.fridaSession,
         writeMemoryJS(addrExpr, hex_bytes),
       );
@@ -109,7 +109,7 @@ export function registerMemoryTools(server: McpServer): void {
       } else {
         hexPattern = pattern;
       }
-      const result = await executeTransientScript(
+      const result = await executeTransientExpression(
         session.fridaSession,
         searchMemoryJS(hexPattern, max_results),
         30000,

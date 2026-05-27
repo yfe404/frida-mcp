@@ -4,41 +4,20 @@
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { execFile } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
 import { z } from "zod";
 import { sessionManager } from "../state.js";
-import { resolveDevice, executeTransientJavaScript, truncateResult, createJavaBridgeScript } from "../utils.js";
+import { resolveDevice, executeTransientExpressionJava, truncateResult, createJavaBridgeScript } from "../utils.js";
 import {
   sslPinningDisableJS,
   getCurrentActivityJS,
   fileLsJS,
   fileReadJS,
 } from "../injected/java-helpers.js";
-
-const execFileAsync = promisify(execFile);
+import { runAdbShell, shellQuote, getHostFridaVersion } from "../adb.js";
 
 export interface FridaServerProcessInfo {
   pid: number | null;
   line: string;
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\"'\"'`)}'`;
-}
-
-function getHostFridaVersion(): string {
-  try {
-    const __dirname = dirname(fileURLToPath(import.meta.url));
-    const pkgPath = join(__dirname, "..", "..", "node_modules", "frida", "package.json");
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
-    return typeof pkg.version === "string" ? pkg.version : "unknown";
-  } catch {
-    return "unknown";
-  }
 }
 
 export function parseFridaServerPsOutput(output: string): FridaServerProcessInfo[] {
@@ -79,18 +58,6 @@ export function buildFridaServerWarnings(details: {
     warnings.push("Unable to determine device frida-server version automatically.");
   }
   return warnings;
-}
-
-async function runAdbShell(command: string, adbSerial?: string): Promise<string> {
-  const args = [
-    ...(adbSerial ? ["-s", adbSerial] : []),
-    "shell",
-    "sh",
-    "-c",
-    command,
-  ];
-  const { stdout } = await execFileAsync("adb", args, { encoding: "utf8" });
-  return stdout.trim();
 }
 
 export function registerAndroidTools(server: McpServer): void {
@@ -140,7 +107,7 @@ export function registerAndroidTools(server: McpServer): void {
     },
     async ({ session_id }) => {
       const session = sessionManager.requireSession(session_id);
-      const result = await executeTransientJavaScript(
+      const result = await executeTransientExpressionJava(
         session.fridaSession,
         getCurrentActivityJS(),
         5000,
@@ -272,7 +239,7 @@ export function registerAndroidTools(server: McpServer): void {
     },
     async ({ session_id, path }) => {
       const session = sessionManager.requireSession(session_id);
-      const result = await executeTransientJavaScript(
+      const result = await executeTransientExpressionJava(
         session.fridaSession,
         fileLsJS(path),
         10000,
@@ -291,7 +258,7 @@ export function registerAndroidTools(server: McpServer): void {
     },
     async ({ session_id, path, max_size }) => {
       const session = sessionManager.requireSession(session_id);
-      const result = await executeTransientJavaScript(
+      const result = await executeTransientExpressionJava(
         session.fridaSession,
         fileReadJS(path, max_size),
         10000,
