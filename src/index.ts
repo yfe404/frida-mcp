@@ -22,6 +22,9 @@ import { registerDocsTools } from "./tools/docs.js";
 import { registerAndroidTools } from "./tools/android.js";
 import { registerExportTools } from "./tools/export.js";
 import { registerBootstrapTools } from "./tools/bootstrap.js";
+import { registerRecipeTools } from "./tools/recipes.js";
+import { registerProcessInventoryTool } from "./tools/process-inventory.js";
+import { registerAntiDetectionTools } from "./tools/anti-detection.js";
 import { registerResources } from "./resources.js";
 
 async function main() {
@@ -42,6 +45,9 @@ async function main() {
   registerAndroidTools(server);
   registerExportTools(server);
   registerBootstrapTools(server);
+  registerRecipeTools(server);
+  registerProcessInventoryTool(server);
+  registerAntiDetectionTools(server);
 
   // Register resources (runtime + docs)
   registerResources(server);
