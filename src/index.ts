@@ -25,6 +25,8 @@ import { registerBootstrapTools } from "./tools/bootstrap.js";
 import { registerRecipeTools } from "./tools/recipes.js";
 import { registerProcessInventoryTool } from "./tools/process-inventory.js";
 import { registerAntiDetectionTools } from "./tools/anti-detection.js";
+import { registerStaticTools } from "./tools/static.js";
+import { registerSourceJumpTool } from "./tools/source-jump.js";
 import { registerResources } from "./resources.js";
 
 async function main() {
@@ -48,6 +50,8 @@ async function main() {
   registerRecipeTools(server);
   registerProcessInventoryTool(server);
   registerAntiDetectionTools(server);
+  registerStaticTools(server);
+  registerSourceJumpTool(server);
 
   // Register resources (runtime + docs)
   registerResources(server);
