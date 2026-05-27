@@ -14,7 +14,38 @@ import { registerNativeHookTools } from "../../src/tools/native-hooks.js";
 import { registerDocsTools } from "../../src/tools/docs.js";
 import { registerAndroidTools } from "../../src/tools/android.js";
 import { registerExportTools } from "../../src/tools/export.js";
+import { registerBootstrapTools } from "../../src/tools/bootstrap.js";
+import { registerRecipeTools } from "../../src/tools/recipes.js";
+import { registerProcessInventoryTool } from "../../src/tools/process-inventory.js";
+import { registerAntiDetectionTools } from "../../src/tools/anti-detection.js";
+import { registerStaticTools } from "../../src/tools/static.js";
+import { registerSourceJumpTool } from "../../src/tools/source-jump.js";
 import { registerResources } from "../../src/resources.js";
+
+/**
+ * Tool counts by module (must stay in sync with `src/index.ts`). The
+ * regression cost of a stale absolute count was higher than the value of
+ * the assertion, so we derive it from the per-module contribution.
+ */
+const TOOL_COUNTS = {
+  device: 4,
+  process: 6,
+  session: 6,   // create_interactive_session, execute_in_session, get_session_messages, read_session_message_blob, get_archived_session_messages, subscribe_messages
+  scriptMgmt: 4,
+  memory: 6,
+  java: 6,
+  nativeHooks: 2,
+  docs: 1,
+  android: 6,
+  export: 1,
+  bootstrap: 2,        // ensure_frida_server, spawn_and_instrument
+  recipes: 9,          // hook_okhttp_requests, hook_java_method_recipe, hook_native_export, trace_class_methods, dump_mac_doFinal, bypass_ssl_pinning, search_recipes, describe_recipe, set_session_filter
+  processInventory: 1, // process_inventory
+  antiDetection: 2,    // check_frida_detection, bypass_root_detection
+  static: 5,           // apk_pull, apk_manifest, decompile_class, decompile_method, list_native_exports
+  sourceJump: 1,       // source_jump
+};
+const EXPECTED_TOOLS = Object.values(TOOL_COUNTS).reduce((a, b) => a + b, 0);
 
 describe("MCP Server Integration", () => {
   let server: McpServer;
@@ -34,6 +65,12 @@ describe("MCP Server Integration", () => {
     registerDocsTools(server);
     registerAndroidTools(server);
     registerExportTools(server);
+    registerBootstrapTools(server);
+    registerRecipeTools(server);
+    registerProcessInventoryTool(server);
+    registerAntiDetectionTools(server);
+    registerStaticTools(server);
+    registerSourceJumpTool(server);
     registerResources(server);
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -54,9 +91,9 @@ describe("MCP Server Integration", () => {
   });
 
   describe("tools/list", () => {
-    it("returns all 41 tools", async () => {
+    it(`returns all ${EXPECTED_TOOLS} tools`, async () => {
       const result = await client.listTools();
-      assert.equal(result.tools.length, 41);
+      assert.equal(result.tools.length, EXPECTED_TOOLS);
     });
 
     it("each tool has description and inputSchema", async () => {
@@ -205,7 +242,7 @@ describe("MCP Server Integration", () => {
       });
       // Subsequent call should still work
       const result = await client.listTools();
-      assert.equal(result.tools.length, 41);
+      assert.equal(result.tools.length, EXPECTED_TOOLS);
     });
   });
 
