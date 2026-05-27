@@ -26,8 +26,8 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
-    "frida": "^17.7.3",
-    "frida-java-bridge": "^7.0.12",
+    "frida": "^17.9.11",
+    "frida-java-bridge": "^7.0.13",
     "zod": "^3.25.0"
   },
   "devDependencies": {
