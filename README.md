@@ -1,6 +1,17 @@
 # frida-mcp
 
-TypeScript MCP server for Frida 17 dynamic instrumentation. Provides 41 tools and 15 resources for attaching to processes, executing scripts, hooking native and Java methods, bypassing SSL pinning, reading/writing memory, inspecting Java heaps, exporting large captures to disk, and searching Frida 17 API documentation — all through the Model Context Protocol.
+TypeScript MCP server for Frida 17 dynamic instrumentation. Provides ~62 tools and 15 resources for attaching to processes, executing scripts, hooking native and Java methods, bypassing SSL pinning and root detection, reading/writing memory, inspecting Java heaps, exporting large captures to disk, pulling APKs and decompiling them with jadx, and searching Frida 17 API documentation — all through the Model Context Protocol.
+
+## What's new in 1.1.0
+
+- **Bootstrap**: one-call `ensure_frida_server` (arch-detect + download + push + launch) and `spawn_and_instrument` (atomic spawn → attach → load → resume) that beats the Android `ActivityManagerService` 10s timeout.
+- **Recipe library**: parameterised hook templates for OkHttp, Java method, native export, class trace, `Mac.doFinal`, SSL pinning bypass and root-detection bypass. Recipes install asynchronously so `script.load()` returns in <100ms; subscribe on `recipe.installed` via `subscribe_messages`.
+- **Source-side filter**: every recipe accepts a `where` predicate evaluated in the agent (host-side blocklist against loops/eval/Function + 50ms agent watchdog), plus a global `set_session_filter`.
+- **Static analysis bridge**: `apk_pull`, `apk_manifest`, `decompile_class`, `decompile_method`, `list_native_exports`, `process_inventory`, `source_jump` close the loop between a captured runtime stack frame and the decompiled `.java`.
+- **Anti-detection helpers**: `check_frida_detection` enumerates against RootBeer / SafetyNet / Play Integrity / Xposed; `bypass_root_detection` is opt-in.
+- **Real fixes** to existing tools: `list_classes` and `dump_class` now return data on Frida 17.9.x (object-callback `Java.enumerateLoadedClasses` + Promise-aware execution wrapper); `trace_class_methods` no longer infinite-recurses (closure-captured overload pattern); session detach now unloads scripts; `subscribe_messages` long-poll cannot leak listeners.
+
+See [CHANGELOG.md](CHANGELOG.md) for the full list.
 
 ## Setup
 
@@ -183,6 +194,56 @@ Minimal flow:
 | Tool | Description | Key Params |
 |------|-------------|------------|
 | `search_frida_docs` | Full-text search Frida 17 API docs (size-safe paginated snippets) | `query`, `limit?`, `offset?`, `snippet_chars?` |
+
+### Bootstrap Tools (2)
+
+| Tool | Description | Key Params |
+|------|-------------|------------|
+| `ensure_frida_server` | Detect device arch, download (opt-in) matching `frida-server` from GitHub releases, push to device, kill old instances, launch detached, verify reachable. Subsumes the 6-command manual install. | `device_id?`, `target_version?`, `binary_path?`, `allow_network?` (default false), `force_redownload?`, `verify_timeout_ms?` |
+| `spawn_and_instrument` | Atomically `device.spawn` → `device.attach` → optional `script.load` → `device.resume` inside a single MCP call so AMS's ~10s "failed to attach" window cannot fire between steps. | `package`, `device_id?`, `script_path?`, `argv?`, `resume?` |
+
+### Recipe Tools (8)
+
+Vetted, parameterised hook templates so you do not have to write 100+ lines of Frida JS for every common task. All recipes defer their hook installation via `Script.nextTick` so `script.load()` returns immediately; long-poll `subscribe_messages` on the `recipe.installed` event to wait for hooks to be live. All recipes accept a `where` predicate that gates `send()` in the agent.
+
+| Tool | Description | Key Params |
+|------|-------------|------------|
+| `hook_okhttp_requests` | Snoop every finalized `okhttp3.Request$Builder.build` across all OkHttp clients. | `session_id`, `url_includes?`, `include_stack?`, `include_body?`, `max_body_bytes?`, `where?` |
+| `hook_java_method_recipe` | Hook all overloads of a Java method with source-side `where`, `max_emits` cap, and per-string truncation. | `session_id`, `class_name`, `method_name`, `log_args?`, `log_retval?`, `log_backtrace?`, `max_emits?`, `truncate_at?`, `where?` |
+| `hook_native_export` | `Interceptor.attach` to a single exported symbol via `Process.getModuleByName().getExportByName()`. | `session_id`, `module`, `symbol`, `num_args?`, `decode_ret_as_cstring?`, `where?` |
+| `trace_class_methods` | `frida-trace -j 'pkg.*!*'` equivalent: enumerate matching classes, install lightweight call-tracers. Skips native / synthetic / `$$Lambda` to avoid agent crashes. | `session_id`, `class_filter`, `method_filter?`, `max_methods?`, `where?` |
+| `dump_mac_doFinal` | Hook both overloads of `javax.crypto.Mac.doFinal`. Generic crypto observer — cracks HMAC algorithms in seconds. | `session_id`, `include_input?`, `where?` |
+| `bypass_ssl_pinning` | TrustAllCerts + null hostname verifier + OkHttp3 `CertificatePinner` + Conscrypt `TrustManagerImpl`. | `session_id` |
+| `search_recipes` | Free-text search the local recipe registry. | `query` |
+| `describe_recipe` | Return parameter schema + emitted event types for a recipe by slug. | `slug` |
+
+Plus two helpers wired through the same machinery:
+
+| Tool | Description | Key Params |
+|------|-------------|------------|
+| `set_session_filter` | Install / clear a global JS predicate that gates every recipe's `send()` before its per-recipe `where` runs. | `session_id`, `predicate_js` |
+| `subscribe_messages` | Long-poll for new session messages. Resolves as soon as N matching messages exist or after `timeout_ms`. Optional `where` is a JS predicate over the stored message; `consume=true` removes returned messages from the queue. | `session_id`, `where?`, `min_count?`, `timeout_ms?`, `consume?`, `since_seq?` |
+
+### Static Analysis Tools (7)
+
+Bridge between Frida's runtime view and the APK's static source. Shell out to `adb`, `aapt2`, `jadx`, `nm` / `readelf`.
+
+| Tool | Description | Key Params |
+|------|-------------|------------|
+| `apk_pull` | `pm path` + `adb pull` an installed APK into `~/.cache/frida-mcp/apks/`. Cached. | `package`, `device_id?`, `force?` |
+| `apk_manifest` | `aapt2 dump xmltree` → JSON (package, versions, permissions, exported components). | `apk_path` |
+| `decompile_class` | jadx full-class decompile (cached per APK fingerprint). Inner classes via outer file. | `apk_path`, `fqcn` |
+| `decompile_method` | Slice one method out of the decompiled class. Skips `@kotlin.Metadata` block; falls back to `full_class` if name is inlined. | `apk_path`, `fqcn`, `method` |
+| `list_native_exports` | `nm -D --demangle` (or `readelf -sDW`) parser for a `.so`'s exported symbols. | `so_path`, `tool?`, `filter?` |
+| `process_inventory` | One-shot: loaded native modules + user-namespace Java classes + detected networking stack(s) + anti-detection-lib hits. | `session_id` |
+| `source_jump` | Parse a Java stack trace and return a `±context_lines` snippet around each user frame in the decompiled source. Falls back to `class <Name>` declaration when method name not found. | `stack_trace`, `apk_path`, `context_lines?`, `include_framework_frames?`, `max_frames?` |
+
+### Anti-Detection Tools (2)
+
+| Tool | Description | Key Params |
+|------|-------------|------------|
+| `check_frida_detection` | Enumerate loaded classes against known detection-lib patterns (RootBeer, SafetyNet, Play Integrity, Xposed, plus keyword `Frida`/`Magisk`/`Substrate`). Recommends matching bypass recipe slugs. | `session_id` |
+| `bypass_root_detection` | Opt-in: patch `File.exists` for su paths, `Runtime.exec("su")`, `Build.TAGS` test-keys. Derivative of `@dzonerzy/fridantiroot` + objection's root-bypass agent. | `session_id`, `where?` |
 
 ## Resources
 

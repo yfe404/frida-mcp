@@ -32,7 +32,7 @@ import { registerResources } from "./resources.js";
 async function main() {
   const server = new McpServer({
     name: "frida",
-    version: "1.0.0",
+    version: "1.1.0",
   });
 
   // Register all tool modules
