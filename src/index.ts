@@ -2,9 +2,10 @@
 /**
  * Frida MCP Server (TypeScript) — entry point.
  *
- * Creates an McpServer with 41 tools and ~18 resources, connects via stdio.
- * Tools are organized into 10 modules:
- *   device, process, session, script-mgmt, memory, java, native-hooks, docs, android, export
+ * Creates an McpServer connected via stdio.
+ * Tools are organized into modules:
+ *   device, process, session, script-mgmt, memory, java, native-hooks, docs,
+ *   android, export, bootstrap.
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -20,6 +21,7 @@ import { registerNativeHookTools } from "./tools/native-hooks.js";
 import { registerDocsTools } from "./tools/docs.js";
 import { registerAndroidTools } from "./tools/android.js";
 import { registerExportTools } from "./tools/export.js";
+import { registerBootstrapTools } from "./tools/bootstrap.js";
 import { registerResources } from "./resources.js";
 
 async function main() {
@@ -39,6 +41,7 @@ async function main() {
   registerDocsTools(server);
   registerAndroidTools(server);
   registerExportTools(server);
+  registerBootstrapTools(server);
 
   // Register resources (runtime + docs)
   registerResources(server);
