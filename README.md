@@ -1,5 +1,7 @@
 # frida-mcp
 
+[![Featured by Awesome REA](https://raw.githubusercontent.com/reacher-z/Awesome-REA/main/assets/featured-by-awesome-rea-inline.svg)](https://github.com/reacher-z/Awesome-REA)
+
 TypeScript MCP server for Frida 17 dynamic instrumentation. Provides ~62 tools and 15 resources for attaching to processes, executing scripts, hooking native and Java methods, bypassing SSL pinning and root detection, reading/writing memory, inspecting Java heaps, exporting large captures to disk, pulling APKs and decompiling them with jadx, and searching Frida 17 API documentation — all through the Model Context Protocol.
 
 ## What's new in 1.1.0
